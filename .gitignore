@@ -1,0 +1,8 @@
+# Abaikan file rahasia
+.env
+
+# Abaikan folder virtual environment Python
+.venv/
+
+# Abaikan cache Python
+__pycache__/
