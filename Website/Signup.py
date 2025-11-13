@@ -3,42 +3,58 @@ import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Load environment variables
+# Load environment variables from .env file in the parent directory
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Validate credentials
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
-
-# Clean up URL if it has duplicate parts
-if "https://" in SUPABASE_URL and SUPABASE_URL.count("https://") > 1:
-    # Take only the first valid URL part
-    SUPABASE_URL = SUPABASE_URL.split("https://")[1]
-    SUPABASE_URL = "https://" + SUPABASE_URL.split("https://")[0]
-
-
+# --- Supabase Client Initialization ---
 @st.cache_resource
 def get_supabase_client() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY) # type: ignore
-
-
-def signup_widget() -> bool:
+    """
+    Initializes and returns a cached Supabase client.
+    Raises ValueError if Supabase credentials are not set.
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
     
-    st.subheader("📝 Daftar Akun Baru")
-    
+    # Clean up URL if it has duplicate parts
+    clean_url = SUPABASE_URL
+    if "https://" in clean_url and clean_url.count("https://") > 1:
+        clean_url = "https://" + clean_url.split("https://")[-1]
+        
+    return create_client(clean_url, SUPABASE_KEY)
+
+# --- Signup Page UI and Logic ---
+def signup_page():
+    """
+    Renders the complete signup page with a form and links to the login page.
+    """
+    st.set_page_config(page_title="Daftar Akun", layout="centered")
+    st.title("📝 Daftar Akun Baru")
+    st.write("Silakan isi form di bawah ini untuk membuat akun baru.")
+
+    # Button to go back to Login page
+    if st.button("‹ Kembali ke Login"):
+        st.session_state.page = "login"
+        st.rerun()
+
     with st.form("signup_form"):
         email = st.text_input(
             "Email",
             placeholder="your-email@example.com",
             key="signup_email"
         )
+        full_name = st.text_input(
+            "Nama Lengkap",
+            placeholder="Nama Anda",
+            key="signup_name"
+        )
         password = st.text_input(
             "Password",
             type="password",
-            placeholder="Minimum 6 characters",
+            placeholder="Minimal 6 karakter",
             key="signup_password"
         )
         password_confirm = st.text_input(
@@ -47,181 +63,59 @@ def signup_widget() -> bool:
             placeholder="Masukkan ulang password",
             key="signup_password_confirm"
         )
-        full_name = st.text_input(
-            "Nama Lengkap (Opsional)",
-            placeholder="Nama Anda",
-            key="signup_name"
-        )
         
         submitted = st.form_submit_button("Daftar", use_container_width=True)
         
         if submitted:
-            # Validation
-            if not email or not password or not password_confirm:
-                st.error("Email dan password harus diisi")
-                return False
-            
+            # --- Input Validation ---
+            if not all([email, full_name, password, password_confirm]):
+                st.error("❌ Semua field harus diisi.")
+                return
+
             if password != password_confirm:
-                st.error("Password dan konfirmasi password tidak cocok")
-                return False
+                st.error("❌ Password dan konfirmasi password tidak cocok.")
+                return
             
             if len(password) < 6:
-                st.error("Password minimal 6 karakter")
-                return False
-            
-            # Attempt signup
+                st.error("❌ Password minimal harus 6 karakter.")
+                return
+
+            # --- Signup Process ---
             try:
                 supabase = get_supabase_client()
                 
-                # Sign up user with email and password
-                response = supabase.auth.sign_up({
+                # Step 1: Sign up the user in Supabase Auth
+                auth_response = supabase.auth.sign_up({
                     "email": email,
                     "password": password,
                 })
-                
-                if response.user:
-                    st.success(f"✅ Pendaftaran berhasil! Silakan periksa email Anda untuk verifikasi.")
+
+                # Step 2: If auth is successful, insert profile into the 'User' table
+                if auth_response.user:
+                    user_id = auth_response.user.id
                     
-                    # Simpan data user ke tabel User di Supabase (termasuk password)
-                    try:
-                        insert_data = {
-                            "ID_User": response.user.id,
-                            "Email": email,
-                            "Password": password,
-                            "Nama": full_name if full_name else email.split("@")[0],
-                            "Role": "User"  # Default role untuk user baru
-                        }
-                        
-                        result = supabase.table("User").insert(insert_data).execute()
-                        
-                        if result.data:
-                            st.success("✅ Profil berhasil disimpan ke database!")
-                        else:
-                            st.success("✅ Data berhasil disimpan!")
-                        
-                    except Exception as e:
-                        error_msg = str(e)
-                        st.error(f"❌ Gagal menyimpan profil: {error_msg}")
+                    insert_data = {
+                        "ID_User": user_id,
+                        "Email": email,
+                        "Password": password,  # WARNING: Storing plain password is not secure
+                        "Nama": full_name,
+                        "Role": "User"
+                    }
                     
-                    return True
+                    # Insert profile data into the public 'User' table
+                    supabase.table("User").insert(insert_data).execute()
+
+                    st.success("✅ Pendaftaran berhasil! Silakan kembali ke halaman login untuk masuk.")
+                    # The button to go back to login is already present outside the form.
+
                 else:
                     st.error("Pendaftaran gagal. Silakan coba lagi.")
-                    return False
-                    
+
             except Exception as e:
                 error_msg = str(e)
-                if "already" in error_msg.lower():
-                    st.error("Email ini sudah terdaftar. Silakan gunakan email lain.")
+                if "user already registered" in error_msg.lower():
+                    st.error("❌ Email ini sudah terdaftar. Silakan gunakan email lain atau login.")
                 elif "invalid" in error_msg.lower():
-                    st.error("Email tidak valid.")
+                    st.error("❌ Email atau password tidak valid.")
                 else:
                     st.error(f"Terjadi kesalahan: {error_msg}")
-                return False
-    
-    return False
-
-
-def login_with_email(email: str, password: str) -> bool:
-    try:
-        supabase = get_supabase_client()
-        response = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-        
-        if response.user:
-            st.session_state.user_authenticated = True
-            st.session_state.user = response.user.email
-            st.session_state.user_id = response.user.id
-            return True
-        else:
-            return False
-            
-    except Exception as e:
-        st.error(f"Login gagal: {str(e)}")
-        return False
-
-
-def logout() -> None:
-    """Log out the current user."""
-    try:
-        supabase = get_supabase_client()
-        supabase.auth.sign_out()
-    except Exception:
-        pass
-    
-    st.session_state.user_authenticated = False
-    st.session_state.user = None
-    st.session_state.user_id = None
-
-
-def get_user_profile(user_id: str):
-    """Ambil data profil user dari tabel User di Supabase.
-    
-    Args:
-        user_id: UUID dari user (dari Supabase Auth)
-    
-    Returns:
-        Dictionary berisi data user atau None jika tidak ditemukan
-    """
-    try:
-        supabase = get_supabase_client()
-        response = supabase.table("User").select("*").eq("ID_User", user_id).execute()
-        
-        if response.data and len(response.data) > 0:
-            return response.data[0]
-        return None
-    except Exception as e:
-        st.error(f"Gagal mengambil data profil: {e}")
-        return None
-
-
-def update_user_profile(user_id: str, data: dict) -> bool:
-    try:
-        supabase = get_supabase_client()
-        supabase.table("User").update(data).eq("ID_User", user_id).execute()
-        st.success("✅ Profil berhasil diupdate!")
-        return True
-    except Exception as e:
-        st.error(f"Gagal update profil: {e}")
-        return False
-
-
-def require_auth(message: str = "Silakan login terlebih dahulu") -> None:
-    """Block execution with a message if user is not authenticated."""
-    if not st.session_state.get("user_authenticated"):
-        st.warning(message)
-        st.stop()
-
-
-if __name__ == "__main__":
-    # Test UI when running this file directly
-    st.set_page_config(page_title="Signup Test", layout="centered")
-    st.title("Signup Module Test")
-    
-    if "user_authenticated" not in st.session_state:
-        st.session_state.user_authenticated = False
-        st.session_state.user = None
-        st.session_state.user_id = None
-    
-    if st.session_state.user_authenticated:
-        st.success(f"Logged in as: {st.session_state.user}")
-        if st.button("Logout"):
-            logout()
-            st.rerun()
-    else:
-        tab1, tab2 = st.tabs(["Login", "Signup"])
-        
-        with tab1:
-            st.subheader("Login")
-            email = st.text_input("Email", key="login_email")
-            password = st.text_input("Password", type="password", key="login_password")
-            if st.button("Login"):
-                if login_with_email(email, password):
-                    st.success("Login berhasil!")
-                    st.rerun()
-                else:
-                    st.error("Email atau password salah")
-        
-        with tab2:
-            signup_widget()
