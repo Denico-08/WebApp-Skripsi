@@ -968,7 +968,7 @@ if st.button("Dapatkan Prediksi dan Penjelasan", type="primary"):
         st.rerun()
             
     except (ValueError, TypeError) as e:
-        st.error(f"Error pada input: Pastikan semua nilai numerik valid. Detail: {str(e)}")
+        st.error(f"Error pada input: Nilai Numerik salah!. Detail: {str(e)}")
         st.stop()# ======================================================================================
 # BLOK UTAMA (TAMPILAN HASIL)
 # ======================================================================================
