@@ -216,9 +216,17 @@ def run_prediction_app():
             my_bar.progress(70, text="Menyiapkan algoritma pencarian...")
             dice_explainer = Dice(data_interface, model_interface, method="genetic")
             query_instance = input_df_processed[all_features_list].copy()
-            features_to_vary_list = [col for col in all_features_list if col not in ['Gender', 'Age', 'Height', 'Weight']]
+            
+            # Mendefinisikan fitur-fitur yang umumnya TIDAK diubah untuk counterfactuals perilaku.
+            # Ini termasuk fitur demografi, atribut statis, dan fitur kontinu yang bukan merupakan kebiasaan langsung.
+            non_actionable_or_static_features = ['Age', 'Height', 'Weight', 'Gender', 'family_history_with_overweight']
+
+            # Fitur yang akan diubah adalah semua fitur yang bukan kontinu dan tidak termasuk dalam daftar non-actionable/statis.
+            # Ini memastikan hanya fitur perilaku/gaya hidup yang dipertimbangkan untuk counterfactuals.
+            features_to_vary_list = [f for f in all_features_list if f not in CONTINUOUS_COLS and f not in non_actionable_or_static_features]
+
             my_bar.progress(90, text="Mencari rekomendasi terbaik...")
-            dice_result = dice_explainer.generate_counterfactuals(query_instance, total_CFs=3, desired_class=desired_class_index, features_to_vary=features_to_vary_list)
+            dice_result = dice_explainer.generate_counterfactuals(query_instance, total_CFs=3, desired_class=desired_class_index, features_to_vary=features_to_vary_list, permitted_range=None)
             my_bar.progress(100, text="Selesai!")
             return dice_result
         except Exception as e:
@@ -314,10 +322,10 @@ def run_prediction_app():
     if st.session_state.prediction_done:
         user_input_raw = st.session_state.user_input_raw
         input_df_processed = preprocess_input_data(user_input_raw, ALL_FEATURES)
-        if input_df_processed is not None:
+        if input_df_processed is not None and model is not None:
             prediction_proba = model.predict_proba(input_df_processed[ALL_FEATURES])
             predicted_class_index = np.argmax(prediction_proba[0])
-            predicted_class = encoders[TARGET_NAME].classes_[predicted_class_index]
+            predicted_class = CLASS_NAMES_PATH[predicted_class_index]
             
             st.header("Hasil Analisis")
             st.subheader("Prediksi Model")
@@ -338,7 +346,7 @@ def run_prediction_app():
                     st.info(f"Mencari rekomendasi untuk mencapai: **{desired_target_class.replace('_', ' ')}**")
                     with st.spinner("Mencari..."):
                         try:
-                            desired_target_index = list(CLASS_NAMES).index(desired_target_class)
+                            desired_target_index = list(CLASS_NAMES_PATH).index(desired_target_class)
                             dice_result = get_dice_recommendations(x_train_encoded, model, encoders, input_df_processed, desired_target_index, ALL_FEATURES)
                             if dice_result and dice_result.cf_examples_list and dice_result.cf_examples_list[0].final_cfs_df is not None:
                                 cf_df_decoded = decode_dice_dataframe(dice_result.cf_examples_list[0].final_cfs_df, encoders, ALL_FEATURES)

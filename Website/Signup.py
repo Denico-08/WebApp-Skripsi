@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # Load environment variables from .env file in the parent directory
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv = r"C:\Users\LENOVO\Documents\DENICO\Skripsi\Python\.env"
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
