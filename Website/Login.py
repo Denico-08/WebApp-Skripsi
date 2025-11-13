@@ -17,12 +17,10 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 if "https://" in SUPABASE_URL and SUPABASE_URL.count("https://") > 1:
     SUPABASE_URL = "https://" + SUPABASE_URL.split("https://")[1].split("https://")[0]
 
-
 @st.cache_resource
 def get_supabase_client() -> Client:
     """Initialize and return cached Supabase client."""
     return create_client(SUPABASE_URL, SUPABASE_KEY)  # type: ignore
-
 
 def authenticate(email: str, password: str) -> bool:
     
@@ -33,10 +31,10 @@ def authenticate(email: str, password: str) -> bool:
     try:
         supabase = get_supabase_client()
         
-        # Step 1: Query ALL users to see what's in the table
+        #Step 1: Query ALL users to see what's in the table
         all_users_response = supabase.table("User").select("Email, Password, Nama, Role").execute()
         
-        # Step 2: Try exact match query
+        #Step 2: Try exact match query
         response = supabase.table("User").select("*").eq("Email", email).eq("Password", password).execute()
         
         if response.data and len(response.data) > 0:
@@ -58,7 +56,6 @@ def authenticate(email: str, password: str) -> bool:
             return False
             
     except Exception as e:
-        print(f"DEBUG ERROR: {type(e).__name__}: {str(e)}")
         st.error(f"❌ Error saat login: {str(e)}")
         
         with st.expander("❌ ERROR DETAILS"):

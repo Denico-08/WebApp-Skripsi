@@ -22,15 +22,11 @@ if "https://" in SUPABASE_URL and SUPABASE_URL.count("https://") > 1:
 
 @st.cache_resource
 def get_supabase_client() -> Client:
-    """Initialize and return cached Supabase client."""
     return create_client(SUPABASE_URL, SUPABASE_KEY) # type: ignore
 
 
 def signup_widget() -> bool:
-    """Render a signup form with Supabase integration.
     
-    Returns True if signup was successful, False otherwise.
-    """
     st.subheader("📝 Daftar Akun Baru")
     
     with st.form("signup_form"):
@@ -126,10 +122,6 @@ def signup_widget() -> bool:
 
 
 def login_with_email(email: str, password: str) -> bool:
-    """Authenticate user with email and password using Supabase.
-    
-    Returns True on success, False otherwise.
-    """
     try:
         supabase = get_supabase_client()
         response = supabase.auth.sign_in_with_password({
@@ -185,15 +177,6 @@ def get_user_profile(user_id: str):
 
 
 def update_user_profile(user_id: str, data: dict) -> bool:
-    """Update data profil user di Supabase.
-    
-    Args:
-        user_id: UUID dari user
-        data: Dictionary dengan field yang ingin diupdate (misal: {"Nama": "John Doe"})
-    
-    Returns:
-        True jika berhasil, False jika gagal
-    """
     try:
         supabase = get_supabase_client()
         supabase.table("User").update(data).eq("ID_User", user_id).execute()
