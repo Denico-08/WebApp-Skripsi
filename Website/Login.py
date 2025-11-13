@@ -86,13 +86,14 @@ def logout() -> None:
     st.session_state.user_name = None
 
 
-def require_auth(message: str = "Silakan login terlebih dahulu") -> None:
+def require_auth(message: str = "Silakan login terlebih dahulu:") -> None:
     if not st.session_state.get("user_authenticated"):
         st.warning(message)
         st.stop()
 
 
-def login_widget() -> bool:
+def login_page() -> None:
+    """Renders the login page and handles authentication logic."""
     if "user_authenticated" not in st.session_state:
         st.session_state.user_authenticated = False
         st.session_state.user = None
@@ -100,25 +101,21 @@ def login_widget() -> bool:
         st.session_state.user_role = None
         st.session_state.user_name = None
 
+    # This part should not be reached if the user is already authenticated,
+    # as the main app router would have already directed them away.
+    # However, it's good practice to keep it.
     if st.session_state.user_authenticated:
-        # User sudah login - tampilkan info
-        col1, col2, col3 = st.columns([2, 2, 1])
-        
-        with col1:
-            st.success(f"✅ Logged in: {st.session_state.user_name}")
-        
-        with col2:
-            st.write(f"*{st.session_state.user}* ({st.session_state.user_role})")
-        
-        with col3:
-            if st.button("🚪 Logout", use_container_width=True):
-                logout()
-                st.rerun()
-        
-        return True
+        st.success(f"✅ Anda sudah login sebagai: {st.session_state.user_name}")
+        st.info("Mengalihkan ke halaman utama...")
+        # In a multi-page app, the main router handles the redirection.
+        # A rerun is enough to trigger the check in the main app.
+        st.rerun()
+        return
 
     # User belum login - tampilkan form login
-    st.subheader("🔑 Login")
+    st.set_page_config(page_title="Login", layout="centered")
+    st.title("🔑 Selamat Datang!")
+    st.subheader("Silakan Login untuk Melanjutkan")
     
     with st.form("login_form"):
         email = st.text_input(
@@ -139,18 +136,15 @@ def login_widget() -> bool:
                 st.error("❌ Email dan password harus diisi")
             else:
                 if authenticate(email, password):
+                    # Set session state and rerun to let the main app router redirect
+                    st.session_state.user_authenticated = True
                     st.success(f"✅ Login berhasil! Selamat datang, {st.session_state.user_name}!")
                     st.rerun()
-                    return True
                 else:
                     st.error("❌ Email atau password salah")
 
-    return False
-
-
-if __name__ == "__main__":
-    # Quick manual test UI when running this file directly
-    st.set_page_config(page_title="Login Test", layout="centered")
-    st.title("Login Module Test")
-    
-    login_widget()
+    st.markdown("---")
+    st.write("Belum punya akun?")
+    if st.button("Buat Akun Baru (Sign Up)", use_container_width=True):
+        st.session_state.page = "signup"
+        st.rerun()

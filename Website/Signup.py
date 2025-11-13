@@ -35,8 +35,10 @@ def signup_page():
     st.title("📝 Daftar Akun Baru")
     st.write("Silakan isi form di bawah ini untuk membuat akun baru.")
 
-    # Link to Login page for existing users
-    st.markdown("Sudah punya akun? [Login di sini](Login)")
+    # Button to go back to Login page
+    if st.button("‹ Kembali ke Login"):
+        st.session_state.page = "login"
+        st.rerun()
 
     with st.form("signup_form"):
         email = st.text_input(
@@ -103,9 +105,8 @@ def signup_page():
                     # Insert profile data into the public 'User' table
                     supabase.table("User").insert(insert_data).execute()
 
-                    st.success("✅ Pendaftaran berhasil! Silakan cek email Anda untuk verifikasi.")
-                    st.info("Anda sekarang dapat login menggunakan akun Anda.")
-                    st.markdown("Silakan [pergi ke halaman Login](Login) untuk masuk.")
+                    st.success("✅ Pendaftaran berhasil! Silakan kembali ke halaman login untuk masuk.")
+                    # The button to go back to login is already present outside the form.
 
                 else:
                     st.error("Pendaftaran gagal. Silakan coba lagi.")
@@ -118,6 +119,3 @@ def signup_page():
                     st.error("❌ Email atau password tidak valid.")
                 else:
                     st.error(f"Terjadi kesalahan: {error_msg}")
-
-if __name__ == "__main__":
-    signup_page()
