@@ -25,10 +25,7 @@ def get_supabase_client() -> Client:
 
 
 def authenticate(email: str, password: str) -> bool:
-    """Check credentials against tabel "User" di Supabase.
     
-    Returns True on success, False otherwise.
-    """
     if not email or not password:
         st.error("❌ Email dan password harus diisi")
         return False
