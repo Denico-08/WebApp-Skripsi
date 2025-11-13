@@ -17,10 +17,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 if "https://" in SUPABASE_URL and SUPABASE_URL.count("https://") > 1:
     SUPABASE_URL = "https://" + SUPABASE_URL.split("https://")[1].split("https://")[0]
 
+
 @st.cache_resource
 def get_supabase_client() -> Client:
     """Initialize and return cached Supabase client."""
     return create_client(SUPABASE_URL, SUPABASE_KEY)  # type: ignore
+
 
 def authenticate(email: str, password: str) -> bool:
     
@@ -31,16 +33,15 @@ def authenticate(email: str, password: str) -> bool:
     try:
         supabase = get_supabase_client()
         
-        #Step 1: Query ALL users to see what's in the table
+        # Step 1: Query ALL users to see what's in the table
         all_users_response = supabase.table("User").select("Email, Password, Nama, Role").execute()
         
-        #Step 2: Try exact match query
+        # Step 2: Try exact match query
         response = supabase.table("User").select("*").eq("Email", email).eq("Password", password).execute()
         
+        
         if response.data and len(response.data) > 0:
-            # Credentials valid - simpan user info ke session state
             user_data = response.data[0]
-            print(f"DEBUG: User found! Data: {user_data}")
             
             st.session_state.user_authenticated = True
             st.session_state.user = email
@@ -49,13 +50,19 @@ def authenticate(email: str, password: str) -> bool:
             st.session_state.user_name = user_data["Nama"] if isinstance(user_data, dict) else email
             return True
         else:
-            # No match found - show available emails
             available_emails = [u["Email"] if isinstance(u, dict) else "N/A" for u in (all_users_response.data or [])]
-            print(f"DEBUG: No match found. Available emails: {available_emails}")
+            
+            with st.expander("🔍 DEBUG INFO"):
+                st.write(f"**Email yang dicari:** {email}")
+                st.write(f"**Password yang dicari:** {password}")
+                st.write(f"**Email yang tersedia di database:** {available_emails}")
+                st.write(f"**Semua data users:**")
+                st.dataframe(all_users_response.data)
             
             return False
             
     except Exception as e:
+        print(f"DEBUG ERROR: {type(e).__name__}: {str(e)}")
         st.error(f"❌ Error saat login: {str(e)}")
         
         with st.expander("❌ ERROR DETAILS"):
@@ -66,7 +73,6 @@ def authenticate(email: str, password: str) -> bool:
 
 
 def logout() -> None:
-    """Log the current user out (modifies Streamlit session state)."""
     try:
         supabase = get_supabase_client()
         supabase.auth.sign_out()
@@ -81,14 +87,12 @@ def logout() -> None:
 
 
 def require_auth(message: str = "Silakan login terlebih dahulu") -> None:
-
     if not st.session_state.get("user_authenticated"):
         st.warning(message)
         st.stop()
 
 
 def login_widget() -> bool:
-
     if "user_authenticated" not in st.session_state:
         st.session_state.user_authenticated = False
         st.session_state.user = None
@@ -140,6 +144,7 @@ def login_widget() -> bool:
                     return True
                 else:
                     st.error("❌ Email atau password salah")
+
     return False
 
 

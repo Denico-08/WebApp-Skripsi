@@ -13,7 +13,7 @@ from sklearn.preprocessing import LabelEncoder
 import traceback
 
 # Import auth modules
-from Signup import signup_widget, login_with_email, logout, require_auth
+from Signup import signup_page
 
 # ======================================================================================
 # 1. KONFIGURASI & SETUP APLIKASI
@@ -24,57 +24,28 @@ st.set_page_config(page_title="Prediksi Obesitas (XAI)", layout="wide")
 # ======================================================================================
 # AUTHENTICATION GATE
 # ======================================================================================
-# Initialize session state for auth
+# Initialize session state if not already done
 if "user_authenticated" not in st.session_state:
     st.session_state.user_authenticated = False
-    st.session_state.user = None
-    st.session_state.user_id = None
 
-# Show auth UI if not logged in
+# If user is not authenticated, show login message and stop
 if not st.session_state.user_authenticated:
-    st.title("🔐 Sistem Prediksi Obesitas - Login Required")
+    st.title("🔐 Akses Ditolak")
+    st.warning("Anda harus login untuk mengakses halaman ini.")
+    st.markdown("Silakan [kembali ke halaman Login](Login) untuk masuk.")
+    st.stop()  # Block the rest of the app
 
-    # Toggle state to switch between login and signup views
-    if "show_signup" not in st.session_state:
-        st.session_state.show_signup = False
-
-    if not st.session_state.show_signup:
-        st.subheader("🔑 Login")
-        email = st.text_input("Email", key="login_email", placeholder="your-email@example.com")
-        password = st.text_input("Password", type="password", key="login_password", placeholder="Your password")
-
-        if st.button("Login", use_container_width=True, type="primary"):
-            if login_with_email(email, password):
-                st.success("✅ Login berhasil! Mengalihkan...")
-                st.rerun()
-            else:
-                st.error("❌ Email atau password salah")
-
-        st.markdown("---")
-        st.write("Belum punya akun?")
-        if st.button("Doesn't have accounts", use_container_width=True):
-            st.session_state.show_signup = True
-            st.rerun()
-
-    else:
-        st.subheader("✍️ Daftar Akun Baru")
-        signed = signup_widget()
-        if signed:
-            st.success("Pendaftaran berhasil. Silakan login menggunakan akun Anda.")
-            st.session_state.show_signup = False
-            st.rerun()
-
-        if st.button("Kembali ke Login"):
-            st.session_state.show_signup = False
-            st.rerun()
-
-    st.stop()  # Block everything below until logged in
-
-# Show logout button in sidebar if logged in
+# If authenticated, show user info and logout button in the sidebar
 with st.sidebar:
-    st.write(f"**Logged in as:** {st.session_state.user}")
-    if st.button("Logout", key="logout_button"):
-        logout()
+    st.title(f"👋 Halo, {st.session_state.get('user_name', 'Pengguna')}!")
+    st.write(f"**Email:** {st.session_state.get('user_email')}")
+    st.write(f"**Role:** {st.session_state.get('user_role')}")
+    
+    if st.button("🚪 Logout", use_container_width=True):
+        # Clear all session state keys to log out
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        # Rerun to reflect the logout state
         st.rerun()
 
 # --- Path ke Aset Model (SESUAI DENGAN REPO ANDA) ---
