@@ -15,12 +15,6 @@ import traceback
 from Login import logout
 
 def run_prediction_app():
-    # Using a function ensures that all variables are locally scoped
-    # and the app is cleaner.
-
-    # ======================================================================================
-    # 1. KONFIGURASI & SETUP APLIKASI
-    # ======================================================================================
 
     st.set_page_config(page_title="Prediksi Obesitas (XAI)", layout="wide")
 
@@ -37,14 +31,13 @@ def run_prediction_app():
 
     # --- Path ke Aset Model (SESUAI DENGAN REPO ANDA) ---
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    MODEL_DIR = os.path.join(BASE_DIR,"Model_Website") 
+    MODEL_DIR = os.path.join(BASE_DIR, "Model_Website")
 
-    MODEL_PATH = os.path.join(MODEL_DIR, "catboost_obesity_model.cbm") 
+    MODEL_PATH = os.path.join(MODEL_DIR, "catboost_obesity_model.cbm")
     TARGET_ENCODER_PATH = os.path.join(MODEL_DIR, "label_encoder_y_v3.pkl")
     FEATURE_NAMES_PATH = os.path.join(MODEL_DIR, "feature_names_v3.pkl")
     CLASS_NAMES_PATH = os.path.join(MODEL_DIR, "class_names_y_v3.pkl")
-
-    DATA_PATH = r"C:\Users\LENOVO\Documents\DENICO\Skripsi\Python\Dataset\combined_dataset.csv"
+    X_TRAIN_PROCESSED_PATH = os.path.join(MODEL_DIR, "X_train_processed.pkl")
 
     # --- Konfigurasi Tipe Fitur (Berdasarkan Notebook) ---
     TARGET_NAME = 'NObeyesdad'
@@ -118,43 +111,53 @@ def run_prediction_app():
 
     @st.cache_resource
     def load_all_assets():
+        """
+        Memuat semua aset yang diperlukan untuk aplikasi: model, encoder, nama fitur,
+        dan data training yang sudah diproses.
+        """
+        # Hapus/beri komentar st.write debug jika sudah tidak diperlukan
+        st.write("--- DEBUG: Memulai load_all_assets ---")
         try:
             model = CatBoostClassifier()
             model.load_model(MODEL_PATH)
+        
             target_encoder = joblib.load(TARGET_ENCODER_PATH)
             all_features = joblib.load(FEATURE_NAMES_PATH)
             class_names = joblib.load(CLASS_NAMES_PATH)
-            encoders = { TARGET_NAME: target_encoder }
-            x_train_raw = pd.read_csv(DATA_PATH, usecols=all_features + [TARGET_NAME])
-            x_train_raw = x_train_raw.dropna().reset_index(drop=True)
-            x_train_processed = x_train_raw.copy()
-            for col in CONTINUOUS_COLS:
-                x_train_processed[col] = pd.to_numeric(x_train_processed[col], errors='coerce')
-            x_train_processed['Gender'] = x_train_processed['Gender'].map(GENDER_MAP)
-            x_train_processed['family_history_with_overweight'] = x_train_processed['family_history_with_overweight'].map(FAMILY_HISTORY_MAP)
-            x_train_processed['FAVC'] = x_train_processed['FAVC'].map(FAVC_MAP)
-            x_train_processed['SCC'] = x_train_processed['SCC'].map(SCC_MAP)
-            x_train_processed['SMOKE'] = x_train_processed['SMOKE'].map(SMOKE_MAP)
-            x_train_processed['CAEC'] = x_train_processed['CAEC'].map(CAEC_MAP)
-            x_train_processed['CALC'] = x_train_processed['CALC'].map(CALC_MAP)
-            x_train_processed['MTRANS'] = x_train_processed['MTRANS'].map(MTRANS_MAP)
-            for col in ORDINAL_COLS:
-                x_train_processed[col] = pd.to_numeric(x_train_processed[col], errors='coerce')
-            x_train_processed = x_train_processed.dropna()
-            for col in ALL_CATEGORICAL_COLS:
-                x_train_processed[col] = x_train_processed[col].round().astype(int)
-            for col in CONTINUOUS_COLS:
-                if col == 'Age': x_train_processed[col] = x_train_processed[col].round().astype(int)
-                else: x_train_processed[col] = x_train_processed[col].astype(float)
-            x_train_encoded = x_train_processed[all_features]
+            encoders = {TARGET_NAME: target_encoder}
+            # Muat file .pkl, yang saat ini adalah numpy array
+            x_train_array = joblib.load(X_TRAIN_PROCESSED_PATH) 
+
+            # --- TAMBAHKAN KONVERSI INI ---
+            if isinstance(x_train_array, np.ndarray):
+                if all_features:
+                    x_train_encoded = pd.DataFrame(x_train_array, columns=all_features)
+                else:
+                    st.error("Gagal konversi: 'all_features' (nama fitur) gagal dimuat atau kosong.")
+                    return None, None, None, None, None
+            elif isinstance(x_train_array, pd.DataFrame):
+                 x_train_encoded = x_train_array # Jika sudah benar, langsung gunakan
+            else:
+                st.error(f"Tipe X_train tidak didukung: {type(x_train_array)}")
+                return None, None, None, None, None
+            # ---------------------------------
+
+            # Pemeriksaan sekarang seharusnya berhasil
+            if not isinstance(x_train_encoded, pd.DataFrame):
+                st.error(f"File '{os.path.basename(X_TRAIN_PROCESSED_PATH)}' tetap tidak valid.")
+                return None, None, None, None, None
+            
+            st.write("--- DEBUG: SEMUA ASET BERHASIL DIMUAT (TERMASUK KONVERSI) ---")
             return model, encoders, all_features, class_names, x_train_encoded
+
+        except FileNotFoundError as e:
+            st.error(f"Gagal memuat file aset: {e}. Pastikan file berada di direktori '{os.path.basename(MODEL_DIR)}'.")
+            return None, None, None, None, None
         except Exception as e:
-            st.error(f"Gagal memuat aset penting: {e}")
+            st.error(f"Terjadi error yang tidak terduga saat memuat aset: {e}")
+            st.error(f"Traceback: {traceback.format_exc()}")
             return None, None, None, None, None
 
-    # ... (The rest of the functions: initialize_lime_explainer, predict_proba_catboost_for_lime, DiceCatBoostWrapper, etc.)
-    # Note: These functions are now defined inside run_prediction_app, which is fine.
-    
     @st.cache_resource
     def initialize_lime_explainer(_X_train_encoded, all_features_list, class_names_list):
         training_values = _X_train_encoded[all_features_list].values 
@@ -174,10 +177,15 @@ def run_prediction_app():
         else:
             df = pd.DataFrame(data)
         input_encoded = df.reindex(columns=all_features_list, fill_value=0)
-        for col in ALL_CATEGORICAL_COLS:
+        # BENAR: Hanya ubah kolom KATEGORIKAL (bukan ordinal) ke int
+        for col in CATEGORICAL_COLS: # <-- Perhatikan: BUKAN ALL_CATEGORICAL_COLS
             if col in input_encoded.columns:
-                numeric_col = pd.to_numeric(input_encoded[col], errors='coerce').fillna(0)
-                input_encoded[col] = numeric_col.round().astype(int)
+                input_encoded[col] = pd.to_numeric(input_encoded[col], errors='coerce').fillna(0).round().astype(int)
+
+        # Pastikan kolom ORDINAL adalah float bersih (karena sudah di-scaling)
+        for col in ORDINAL_COLS:
+            if col in input_encoded.columns:
+                input_encoded[col] = pd.to_numeric(input_encoded[col], errors='coerce').fillna(0)
         for col in CONTINUOUS_COLS:
             if col in input_encoded.columns:
                 input_encoded[col] = pd.to_numeric(input_encoded[col], errors='coerce').fillna(0).astype(float)
@@ -205,36 +213,63 @@ def run_prediction_app():
         try:
             my_bar.progress(10, text="Mempersiapkan data training...")
             df_dice = _x_train_encoded.copy()
+            
+            # --- PERBAIKAN DIMULAI DI SINI ---
+            # Error DiCE 'cat_features must be integer or string'
+            # Kita harus memastikan semua kolom kategorikal adalah integer, bukan float,
+            # sebelum memberikannya ke dice_ml.Data.
+            for col in ALL_CATEGORICAL_COLS:
+                if col in df_dice.columns:
+                    # Konversi paksa ke numeric (jika ada error), isi NaN, bulatkan,
+                    # dan yang terpenting, ubah ke integer.
+                    df_dice[col] = pd.to_numeric(df_dice[col], errors='coerce').fillna(0).round().astype(int)
+            # --- PERBAIKAN SELESAI ---
+
             string_predictions = model_obj.predict(df_dice[all_features_list]).ravel()
             df_dice[TARGET_NAME] = encoders[TARGET_NAME].transform(string_predictions)
+            
             my_bar.progress(30, text="Mengatur batasan nilai fitur...")
-            dice_continuous_features = CONTINUOUS_COLS.copy()
+            dice_continuous_features = CONTINUOUS_COLS + ORDINAL_COLS
             categorical_features_for_dice = [col for col in all_features_list if col not in dice_continuous_features]
+            
+            # Sekarang df_dice sudah aman untuk diberikan ke DiCE
             data_interface = dice_ml.Data(dataframe=df_dice, continuous_features=dice_continuous_features, outcome_name=TARGET_NAME)
+            
             wrapped_model = DiceCatBoostWrapper(model_obj, all_features_list, CONTINUOUS_COLS, ALL_CATEGORICAL_COLS)
             model_interface = dice_ml.Model(model=wrapped_model, backend="sklearn", model_type='classifier')
+            
             my_bar.progress(70, text="Menyiapkan algoritma pencarian...")
             dice_explainer = Dice(data_interface, model_interface, method="genetic")
             query_instance = input_df_processed[all_features_list].copy()
             
-            # Mendefinisikan fitur-fitur yang umumnya TIDAK diubah untuk counterfactuals perilaku.
-            # Ini termasuk fitur demografi, atribut statis, dan fitur kontinu yang bukan merupakan kebiasaan langsung.
-            non_actionable_or_static_features = ['Age', 'Height', 'Weight', 'Gender', 'family_history_with_overweight']
-
-            # Fitur yang akan diubah adalah semua fitur yang bukan kontinu dan tidak termasuk dalam daftar non-actionable/statis.
-            # Ini memastikan hanya fitur perilaku/gaya hidup yang dipertimbangkan untuk counterfactuals.
-            features_to_vary_list = [f for f in all_features_list if f not in CONTINUOUS_COLS and f not in non_actionable_or_static_features]
-
+            # --- PERBAIKAN KECIL TAMBAHAN ---
+            # Pastikan query_instance juga memiliki tipe data int yang benar untuk DiCE
+            for col in ALL_CATEGORICAL_COLS:
+                if col in query_instance.columns:
+                    query_instance[col] = query_instance[col].astype(int)
+            # -----------------------------------
+            
+            features_to_vary_list = [col for col in all_features_list if col not in ['Gender', 'Age', 'Height', 'Weight']]
+            features_to_vary_str = ','.join(features_to_vary_list)
+            
             my_bar.progress(90, text="Mencari rekomendasi terbaik...")
-            dice_result = dice_explainer.generate_counterfactuals(query_instance, total_CFs=3, desired_class=desired_class_index, features_to_vary=features_to_vary_list, permitted_range=None)
+            # Hapus 'features_to_vary' jika menyebabkan error, biarkan default
+            dice_result = dice_explainer.generate_counterfactuals(
+                query_instance, 
+                total_CFs=3, 
+                desired_class=desired_class_index,
+                features_to_vary=features_to_vary_str
+            )
             my_bar.progress(100, text="Selesai!")
             return dice_result
         except Exception as e:
             st.error(f"Error saat mencari rekomendasi DiCE: {e}")
+            # Tambahkan traceback untuk debugging lebih lanjut
+            st.error(f"Traceback DiCE: {traceback.format_exc()}")
             return None
         finally:
             my_bar.empty()
-
+            
     def decode_dice_dataframe(df_dice_output, encoders, all_features_list):
         df_decoded = df_dice_output.copy()
         categorical_decode_maps = {
@@ -259,11 +294,23 @@ def run_prediction_app():
     # ======================================================================================
 
     loaded_assets = load_all_assets()
-    model, encoders, ALL_FEATURES, CLASS_NAMES, x_train_encoded = loaded_assets
+    model, encoder, ALL_FEATURES, CLASS_NAMES, x_train_encoded = loaded_assets
 
     if any(asset is None for asset in loaded_assets):
         st.error("Gagal memuat aset penting. Aplikasi berhenti.")
         st.stop()
+    
+    # --- Dynamically find the 'Normal_Weight' class ---
+    NORMAL_WEIGHT_CLASS = 'Normal_Weight' # Default fallback
+    if CLASS_NAMES:
+        found_normal_class = False
+        for c in CLASS_NAMES:
+            if "normal" in c.lower(): # Case-insensitive search
+                NORMAL_WEIGHT_CLASS = c
+                found_normal_class = True
+                break
+        if not found_normal_class:
+            st.warning(f"Tidak dapat menemukan kelas 'Normal Weight' secara dinamis. Menggunakan default: '{NORMAL_WEIGHT_CLASS}'.")
     
     lime_explainer = initialize_lime_explainer(x_train_encoded, ALL_FEATURES, CLASS_NAMES)
 
@@ -322,10 +369,15 @@ def run_prediction_app():
     if st.session_state.prediction_done:
         user_input_raw = st.session_state.user_input_raw
         input_df_processed = preprocess_input_data(user_input_raw, ALL_FEATURES)
-        if input_df_processed is not None and model is not None:
+        if input_df_processed is not None:
+            # Pastikan model dan encoder tersedia sebelum melakukan prediksi
+            if model is None or encoder is None or TARGET_NAME not in encoder:
+                st.error("Model atau encoder tidak tersedia. Pastikan semua aset model berhasil dimuat.")
+                st.stop()
+
             prediction_proba = model.predict_proba(input_df_processed[ALL_FEATURES])
             predicted_class_index = np.argmax(prediction_proba[0])
-            predicted_class = CLASS_NAMES_PATH[predicted_class_index]
+            predicted_class = encoder[TARGET_NAME].classes_[predicted_class_index]
             
             st.header("Hasil Analisis")
             st.subheader("Prediksi Model")
@@ -341,20 +393,41 @@ def run_prediction_app():
                     except Exception as e:
                         st.error(f"Gagal membuat penjelasan LIME: {e}")
             with tab2:
-                if predicted_class != 'Normal_Weight':
-                    desired_target_class = 'Normal_Weight'
+                if predicted_class != NORMAL_WEIGHT_CLASS:
+                    desired_target_class = NORMAL_WEIGHT_CLASS
                     st.info(f"Mencari rekomendasi untuk mencapai: **{desired_target_class.replace('_', ' ')}**")
                     with st.spinner("Mencari..."):
                         try:
-                            desired_target_index = list(CLASS_NAMES_PATH).index(desired_target_class)
-                            dice_result = get_dice_recommendations(x_train_encoded, model, encoders, input_df_processed, desired_target_index, ALL_FEATURES)
+                            # Transform the desired class name to its integer index
+                            if encoder is None or TARGET_NAME not in encoder:
+                                st.error("Encoder tidak tersedia. Gagal memuat aset model.")
+                                st.stop()
+                            desired_target_index = encoder[TARGET_NAME].transform([desired_target_class])[0]
+                            
+                            dice_result = get_dice_recommendations(x_train_encoded, model, encoder, input_df_processed, desired_target_index, ALL_FEATURES)
+                            
                             if dice_result and dice_result.cf_examples_list and dice_result.cf_examples_list[0].final_cfs_df is not None:
-                                cf_df_decoded = decode_dice_dataframe(dice_result.cf_examples_list[0].final_cfs_df, encoders, ALL_FEATURES)
+                                cf_df_decoded = decode_dice_dataframe(dice_result.cf_examples_list[0].final_cfs_df, encoder, ALL_FEATURES)
                                 st.dataframe(cf_df_decoded)
                             else:
-        
-                                st.warning("Tidak dapat menemukan rekomendasi.")
+                                st.warning("Tidak dapat menemukan rekomendasi perubahan untuk mencapai status berat badan normal.")
+                        
+                        except ValueError:
+                            st.error(f"Kelas target '{desired_target_class}' tidak ditemukan dalam encoder model. Tidak dapat membuat rekomendasi.")
+                            # Tampilkan kelas yang tersedia jika encoder telah dimuat dengan benar
+                            if encoder is not None and TARGET_NAME in encoder:
+                                try:
+                                    available_classes = list(encoder[TARGET_NAME].classes_)
+                                except Exception:
+                                    available_classes = None
+                            else:
+                                available_classes = None
+                            if available_classes:
+                                st.info(f"Kelas yang tersedia: {available_classes}")
+                            else:
+                                st.info("Kelas yang tersedia: Tidak tersedia (encoder tidak dimuat).")
                         except Exception as e:
                             st.error(f"Gagal menghasilkan rekomendasi DiCE: {e}")
+                            st.error(f"Traceback: {traceback.format_exc()}")
                 else:
-                    st.success("Selamat! Berat badan Anda sudah Normal.")
+                    st.success("Selamat! Berat badan Anda sudah dalam kategori Normal.")
