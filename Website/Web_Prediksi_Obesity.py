@@ -10,42 +10,9 @@ from lime.lime_tabular import LimeTabularExplainer
 import dice_ml
 from dice_ml import Dice
 from sklearn.preprocessing import LabelEncoder
-from typing import Optional, Union
 import traceback
 from Login import logout
-from datetime import date
-
-try:
-    from supabase import create_client
-except Exception:
-    create_client = None
-
-# Load .env if present so SUPABASE_URL / SUPABASE_KEY are available
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    # Fallback: try to read a .env file one directory above this file or in repository root
-    try:
-        env_paths = [
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
-        ]
-        for p in env_paths:
-            if os.path.exists(p):
-                with open(p, 'r', encoding='utf-8') as fh:
-                    for line in fh:
-                        line = line.strip()
-                        if not line or line.startswith('#') or '=' not in line:
-                            continue
-                        k, v = line.split('=', 1)
-                        k = k.strip()
-                        v = v.strip().strip('"').strip("'")
-                        if k and v and k not in os.environ:
-                            os.environ[k] = v
-                break
-    except Exception:
-        pass
+from supabase_client import insert_input_to_supabase
 
 # ================================================================================
 # KONSTANTA DAN KONFIGURASI
@@ -296,10 +263,7 @@ def get_step_description(current_class, next_class, step_number, total_steps):
 
 
 def predict_proba_catboost_for_lime(data, model_obj, all_features_list):
-    """
-    Wrapper used by LIME to call the CatBoost model.
-    Expects `data` as a 1D or 2D array; returns probability matrix shape (n_samples, n_classes).
-    """
+
     try:
         # Normalize input to DataFrame with expected columns
         if isinstance(data, np.ndarray):
@@ -332,70 +296,6 @@ def predict_proba_catboost_for_lime(data, model_obj, all_features_list):
     except Exception:
         # Re-raise so LIME surface shows the original error
         raise
-
-
-@st.cache_resource
-def get_supabase_client():
-    """Create and cache a Supabase client from environment variables.
-
-    Expects `SUPABASE_URL` and `SUPABASE_KEY` to be set in the environment.
-    Returns the client or None if not available.
-    """
-    url = os.environ.get('SUPABASE_URL')
-    key = os.environ.get('SUPABASE_KEY')
-    if not url or not key or create_client is None:
-        return None
-    try:
-        return create_client(url, key)
-    except Exception:
-        return None
-
-
-def insert_input_to_supabase(user_input_raw: dict, user_id: Optional[Union[int, str]] = None):
-
-    client = get_supabase_client()
-    if client is None:
-        return False, "Supabase client not configured (SUPABASE_URL/KEY missing or library not installed)"
-
-    try:
-        # Map and coerce types
-        # determine ID_User value: prefer explicit user_id param, else try session state
-        id_user_value = user_id
-        try:
-            if id_user_value is None:
-                id_user_value = st.session_state.get('user_id', st.session_state.get('user'))
-        except Exception:
-            # st may not be available in some contexts
-            pass
-
-        payload = {
-            'Age': int(user_input_raw.get('Age', 0)),
-            'Gender': str(user_input_raw.get('Gender', '')),
-            'Height': float(user_input_raw.get('Height', 0.0)),
-            'Weight': float(user_input_raw.get('Weight', 0.0)),
-            'FamilyHistory': True if str(user_input_raw.get('family_history_with_overweight', '')).lower() in ['yes', 'y', 'true', '1', 'ya'] else False,
-            'FAVC': str(user_input_raw.get('FAVC', '')),
-            'CAEC': str(user_input_raw.get('CAEC', '')),
-            'SMOKE': str(user_input_raw.get('SMOKE', '')),
-            'SCC': str(user_input_raw.get('SCC', '')),
-            'CALC': str(user_input_raw.get('CALC', '')),
-            'MTRANS': str(user_input_raw.get('MTRANS', '')),
-            'CH20': int(user_input_raw.get('CH2O', 0)),
-            'FCVC': int(user_input_raw.get('FCVC', 0)),
-            'NCP': int(user_input_raw.get('NCP', 0)),
-            'FAF': int(user_input_raw.get('FAF', 0)),
-            'TUE': int(user_input_raw.get('TUE', 0)),
-            'CreateInput': date.today().isoformat(),
-            'ID_User': id_user_value
-        }
-
-        resp = client.table('DataInput').insert(payload).execute()
-        if not resp.data:
-            return False, f"Supabase insert returned no data. Response: {resp}"
-        return True, resp
-    except Exception as e:
-        return False, str(e)
-
 # ================================================================================
 # WRAPPER DAN FUNGSI DICE
 # ================================================================================

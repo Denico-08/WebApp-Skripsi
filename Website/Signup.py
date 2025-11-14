@@ -1,30 +1,6 @@
 import streamlit as st
 import os
-from dotenv import load_dotenv
-from supabase import create_client, Client
-
-# Load environment variables from .env file in the parent directory
-load_dotenv = r"C:\Users\LENOVO\Documents\DENICO\Skripsi\Python\.env"
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-# --- Supabase Client Initialization ---
-@st.cache_resource
-def get_supabase_client() -> Client:
-    """
-    Initializes and returns a cached Supabase client.
-    Raises ValueError if Supabase credentials are not set.
-    """
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
-    
-    # Clean up URL if it has duplicate parts
-    clean_url = SUPABASE_URL
-    if "https://" in clean_url and clean_url.count("https://") > 1:
-        clean_url = "https://" + clean_url.split("https://")[-1]
-        
-    return create_client(clean_url, SUPABASE_KEY)
+from supabase_client import get_supabase_client
 
 # --- Signup Page UI and Logic ---
 def signup_page():
