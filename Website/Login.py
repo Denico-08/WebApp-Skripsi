@@ -1,6 +1,5 @@
 import streamlit as st
-import os
-from supabase_client import get_supabase_client
+from Website.Connection.supabase_client import get_supabase_client
 
 def authenticate(email: str, password: str) -> bool:
     

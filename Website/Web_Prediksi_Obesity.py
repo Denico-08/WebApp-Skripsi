@@ -12,7 +12,7 @@ from dice_ml import Dice
 from sklearn.preprocessing import LabelEncoder
 import traceback
 from Login import logout
-from supabase_client import insert_input_to_supabase
+from Website.Connection.supabase_client import insert_input_to_supabase
 
 # ================================================================================
 # KONSTANTA DAN KONFIGURASI
@@ -260,7 +260,6 @@ def get_next_target_class(current_class, class_names):
 def get_step_description(current_class, next_class, step_number, total_steps):
 
     return f"**Step {step_number}/{total_steps}**: {current_class.replace('_', ' ')} → {next_class.replace('_', ' ')}"
-
 
 def predict_proba_catboost_for_lime(data, model_obj, all_features_list):
 
@@ -947,7 +946,6 @@ def run_prediction_app():
         
         else:
             st.error("Gagal memproses input data. Silakan periksa kembali data yang Anda masukkan.")
-
 
 if __name__ == "__main__":
     run_prediction_app()
