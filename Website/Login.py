@@ -1,26 +1,5 @@
 import streamlit as st
-import os
-from dotenv import load_dotenv
-from supabase import create_client, Client
-
-# Load environment variables
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-# Validate credentials
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
-
-# Clean up URL if it has duplicate parts
-if "https://" in SUPABASE_URL and SUPABASE_URL.count("https://") > 1:
-    SUPABASE_URL = "https://" + SUPABASE_URL.split("https://")[1].split("https://")[0]
-
-@st.cache_resource
-def get_supabase_client() -> Client:
-    """Initialize and return cached Supabase client."""
-    return create_client(SUPABASE_URL, SUPABASE_KEY)  # type: ignore
+from Website.Connection.supabase_client import get_supabase_client
 
 def authenticate(email: str, password: str) -> bool:
     
