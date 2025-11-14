@@ -5,7 +5,7 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -43,7 +43,7 @@ def insert_input_to_supabase(user_input_raw: dict, user_id: Optional[Any] = None
             'SCC': str(user_input_raw.get('SCC', '')),
             'CALC': str(user_input_raw.get('CALC', '')),
             'MTRANS': str(user_input_raw.get('MTRANS', '')),
-            'CH2O': int(user_input_raw.get('CH2O', 0)),
+            'CH20': int(user_input_raw.get('CH2O', 0)),
             'FCVC': int(user_input_raw.get('FCVC', 0)),
             'NCP': int(user_input_raw.get('NCP', 0)),
             'FAF': int(user_input_raw.get('FAF', 0)),
