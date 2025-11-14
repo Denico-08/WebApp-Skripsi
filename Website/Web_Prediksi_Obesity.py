@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import joblib
@@ -9,11 +8,9 @@ from catboost import CatBoostClassifier
 from lime.lime_tabular import LimeTabularExplainer
 import dice_ml
 from dice_ml import Dice
-from sklearn.preprocessing import LabelEncoder
 import traceback
 from Login import logout
 from Website.Connection.supabase_client import insert_input_to_supabase
-
 # ================================================================================
 # KONSTANTA DAN KONFIGURASI
 # ================================================================================
