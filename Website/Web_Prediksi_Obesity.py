@@ -9,8 +9,8 @@ from lime.lime_tabular import LimeTabularExplainer
 import traceback
 from Login import logout
 from Connection.supabase_client import insert_input_to_supabase
-from dice_helpers import decode_dice_dataframe, get_dice_recommendations
-from lime_helpers import initialize_lime_explainer, predict_proba_catboost_for_lime, get_step_description, get_next_target_class
+from XAI.dice_helpers import decode_dice_dataframe, get_dice_recommendations
+from XAI.lime_helpers import initialize_lime_explainer, predict_proba_catboost_for_lime, get_step_description, get_next_target_class
 
 from config import (
     TARGET_NAME, CONTINUOUS_COLS, ALL_CATEGORICAL_COLS, CATEGORICAL_COLS, ORDINAL_COLS,
