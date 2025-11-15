@@ -17,4 +17,10 @@ if not st.session_state.user_authenticated:
     elif st.session_state.page == "signup":
         signup_page()
 else:
-    run_prediction_app()
+    # If authenticated, route based on user role
+    user_role = st.session_state.get('user_role', None)
+    if user_role == "Admin":
+        from Admin import admin_page_
+        admin_page_()
+    else:
+        run_prediction_app()
