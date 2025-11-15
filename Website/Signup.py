@@ -1,5 +1,5 @@
 import streamlit as st
-from Website.Connection.supabase_client import get_supabase_client
+from Connection.supabase_client import get_supabase_client
 
 # --- Signup Page UI and Logic ---
 def signup_page():
