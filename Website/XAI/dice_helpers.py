@@ -238,11 +238,7 @@ def get_dice_recommendations(x_train_encoded, model_obj, encoders, input_df_proc
                     # Jika error terkait target class, coba dengan numeric encoding
                     if 'could not be identified' in error_msg.lower() or 'target' in error_msg.lower():
                         try:
-<<<<<<< HEAD
                             st.write(f"🔄 Mencoba dengan numeric encoding...")
-=======
-                            st.write(f"      🔄 Mencoba dengan numeric encoding...")
->>>>>>> 6d5bbb45cea0b2c96f7eb716b2495b3b1ef8f797
                             
                             # Buat data dengan numeric target
                             df_dice_numeric = df_dice.copy()

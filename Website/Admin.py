@@ -8,10 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
-<<<<<<< HEAD
 from catboost import CatBoostClassifier
-=======
->>>>>>> 6d5bbb45cea0b2c96f7eb716b2495b3b1ef8f797
 from Web_Prediksi_Obesity import load_all_assets
 from Login import require_auth, logout
 from Connection.supabase_client import get_supabase_client
@@ -268,7 +265,6 @@ def _show_model_segment():
             except Exception as e:
                 st.error(f"Gagal menghitung learning curve SVC: {e}")
 
-<<<<<<< HEAD
     # --- Learning curve for CatBoost (train vs val and train vs test)
     st.subheader("Learning Curve CatBoost (Train vs Val & Train vs Test)")
     st.write("Melatih CatBoost pada beberapa fraksi data training untuk melihat tren akurasi.")
@@ -340,10 +336,8 @@ def _show_model_segment():
 
             except Exception as e:
                 st.error(f"Gagal menghitung learning curve CatBoost: {e}")
-
-=======
->>>>>>> 6d5bbb45cea0b2c96f7eb716b2495b3b1ef8f797
-
+                return
+            
 def _show_user_segment():
     st.header("Segmen User")
     st.write("Menampilkan daftar user yang sudah terdaftar dan data input/prediksi mereka (jika tersedia).")
