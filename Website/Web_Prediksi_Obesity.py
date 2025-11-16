@@ -29,10 +29,10 @@ def get_model_paths():
     
     return {
         'model': os.path.join(model_dir, "CatBoost_Model.cbm"),
-        'target_encoder': os.path.join(model_dir, "Y_Processed.pkl.pkl"),
+        'target_encoder': os.path.join(model_dir, "Y_Processed.pkl"),
         'feature_names': os.path.join(model_dir, "X_ClassNames.pkl"),
         'x_train': os.path.join(model_dir, "X_Train_Processed.pkl"),
-        'class_names': os.path.join(model_dir, "Y_Processed.pkl")
+        'class_names': os.path.join(model_dir, "Y_ClassNames.pkl")
     }
 
 def preprocess_input_data(input_dict, all_features_list):

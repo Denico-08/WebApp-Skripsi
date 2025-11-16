@@ -5,8 +5,8 @@ import os
 from matplotlib import pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc
+from sklearn.preprocessing import StandardScaler, label_binarize
 from sklearn.svm import SVC
 from catboost import CatBoostClassifier
 from Web_Prediksi_Obesity import load_all_assets
@@ -136,6 +136,44 @@ def _evaluate_and_display(model, encoder, ALL_FEATURES, df_features, y_true, lab
     st.write(f"Recall (weighted): {rec:.4f}")
     st.write(f"F1-score (weighted): {f1:.4f}")
 
+    # --- ROC Curve ---
+    st.subheader(f"{label_prefix} ROC Curve & AUC")
+    try:
+        y_true_bin = label_binarize(y_true_idx, classes=np.arange(len(encoder.classes_)))
+        n_classes = y_true_bin.shape[1]
+
+        # Compute ROC curve and ROC area for each class
+        fpr = dict()
+        tpr = dict()
+        roc_auc = dict()
+        for i in range(n_classes):
+            fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], proba[:, i])
+            roc_auc[i] = auc(fpr[i], tpr[i])
+
+        fig, ax = plt.subplots(figsize=(8, 7))
+        
+        # Using a color cycle
+        colors = plt.cycler(color=plt.cm.viridis(np.linspace(0, 1, n_classes)))
+        ax.set_prop_cycle(colors)
+
+        for i in range(n_classes):
+            ax.plot(fpr[i], tpr[i], lw=2,
+                    label='ROC of class {0} (AUC = {1:0.2f})'
+                    ''.format(encoder.classes_[i], roc_auc[i]))
+
+        ax.plot([0, 1], [0, 1], 'k--', lw=2, label='Chance')
+        ax.set_xlim([0.0, 1.0])
+        ax.set_ylim([0.0, 1.05])
+        ax.set_xlabel('False Positive Rate')
+        ax.set_ylabel('True Positive Rate')
+        ax.set_title('Receiver Operating Characteristic (One-vs-Rest)')
+        ax.legend(loc="lower right")
+        ax.grid(True)
+        st.pyplot(fig)
+
+    except Exception as e:
+        st.warning(f"Gagal membuat ROC curve: {e}")
+
 
 def _show_model_segment():
     st.header("Segmen Model")
@@ -146,26 +184,25 @@ def _show_model_segment():
         st.error("Gagal memuat aset model. Periksa file model dan asset terkait.")
         return
 
-    csv_path = _get_dataset_path()
-    df = pd.read_csv(csv_path)
-
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(base_path, 'Model_Website', 'X dan Y')
     # Preprocess dataset to model features
-    df_features_all = df.copy()
-    if TARGET_NAME not in df_features_all.columns:
-        st.error(f"Kolom target '{TARGET_NAME}' tidak ditemukan di dataset.")
-        return
-
-    y = df_features_all[TARGET_NAME].astype(str)
-    X = _preprocess_dataframe(df_features_all, ALL_FEATURES) # type: ignore
-
-    # Stratified splits: train 70 / val 15 / test 15
     try:
-        X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.20, stratify=y, random_state=42)
-        X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, stratify=y_temp, random_state=42)
-    except Exception:
-        # fallback to simple split
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-        X_val, y_val = X_test.copy(), y_test.copy()
+        X_val = pd.read_csv(os.path.join(data_path, 'X_val.csv'))
+        X_test = pd.read_csv(os.path.join(data_path, 'X_test.csv'))
+        y_val = pd.read_csv(os.path.join(data_path, 'y_val.csv'))
+        y_test = pd.read_csv(os.path.join(data_path, 'y_test.csv'))
+        
+        if ALL_FEATURES:
+            X_val = X_val[ALL_FEATURES]
+            X_test = X_test[ALL_FEATURES]
+
+    except FileNotFoundError as e:
+        st.error(f"File tidak ditemukan: {e}")
+        return
+    except Exception as e:
+        st.error(f"Error saat memuat dataset: {e}")
+        return
 
     st.subheader("Evaluasi pada Validation Data")
     _evaluate_and_display(model, encoders[TARGET_NAME], ALL_FEATURES, X_val, y_val, label_prefix="Validation")# type: ignore
@@ -185,159 +222,88 @@ def _show_model_segment():
 
     st.write(params)
 
-    # --- Learning curve for SVC (train vs val and train vs test)
-    st.subheader("Learning Curve SVC (Train vs Val & Train vs Test)")
-    st.write("Bandingkan akurasi training dengan validation dan training dengan test menggunakan SVC.")
-    if st.button("Hitung Learning Curve SVC"):
-        with st.spinner("Menghitung learning curve SVC — ini mungkin memakan waktu beberapa menit..."):
-            try:
-                fractions = [0.1, 0.3, 0.5, 0.7, 1.0]
-                train_scores = []
-                val_scores = []
-                test_scores = []
+    # --- CatBoost Learning Curve: Training vs Validation ---
+    st.subheader("Kurva Pembelajaran (Learning Curve)")
+    try:
+        evals_result = None
+        try:
+            evals_result = model.get_evals_result()# type: ignore
+        except Exception:
+            evals_result = None
 
-                # SVC parameters (moderate size to avoid extremely long runs)
-                svc_params = {
-                    'kernel': 'rbf',
-                    'C': 1.0,
-                    'gamma': 'scale',
-                    'max_iter': 10000,
-                }
+        if evals_result and isinstance(evals_result, dict) and 'learn' in evals_result and evals_result['learn']:
+            # determine metric name (e.g., 'Accuracy')
+            metric_name = next(iter(evals_result['learn'].keys()))
+            train_history = list(evals_result['learn'].get(metric_name, []))
+            val_history = list(evals_result.get('validation', {}).get(metric_name, []))
 
-                # limit samples to speed up
-                max_samples = min(len(X_train), 2000)
+            if not val_history:
+                st.warning('Data histori validasi tidak ditemukan di model. Pastikan model dilatih dengan `eval_set` dan menyimpan histori.')
+            else:
+                # ensure same length
+                common_len = min(len(train_history), len(val_history))
+                if common_len == 0:
+                    st.warning('Histori training/validation kosong setelah pemotongan. Tidak dapat menampilkan learning curve.')
+                else:
+                    it = np.arange(1, common_len + 1)
+                    tr = np.array(train_history[:common_len], dtype=float)
+                    va = np.array(val_history[:common_len], dtype=float)
 
-                for frac in fractions:
-                    n = max(10, int(frac * max_samples))
-                    X_sub = X_train.sample(n, random_state=42)
-                    y_sub = y_train.loc[X_sub.index]
+                    # best iteration (may be None)
+                    try:
+                        best_iter = model.get_best_iteration()# type: ignore
+                    except Exception:
+                        best_iter = None
 
-                    # Scale continuous columns using scaler fit on training subset
-                    scaler = StandardScaler()
-                    cont_cols = [c for c in CONTINUOUS_COLS if c in X_sub.columns]
-                    if cont_cols:
-                        scaler.fit(X_sub[cont_cols])
-                        X_sub_scaled = X_sub.copy()
-                        X_sub_scaled[cont_cols] = scaler.transform(X_sub[cont_cols])
-                        X_val_scaled = X_val.copy()
-                        X_val_scaled[cont_cols] = scaler.transform(X_val[cont_cols])
-                        X_test_scaled = X_test.copy()
-                        X_test_scaled[cont_cols] = scaler.transform(X_test[cont_cols])
-                    else:
-                        X_sub_scaled = X_sub
-                        X_val_scaled = X_val
-                        X_test_scaled = X_test
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    ax.plot(it, tr, label=f'Training {metric_name}', color='green', lw=2)
+                    ax.plot(it, va, label=f'Validation {metric_name}', color='orange', lw=2)
+                    if best_iter is not None and 0 <= best_iter < common_len:
+                        ax.axvline(x=best_iter + 1, color='red', linestyle='--', label=f'Best Iteration ({best_iter + 1})')
 
-                    svc = SVC(**svc_params)
-                    svc.fit(X_sub_scaled, y_sub)
+                    ax.set_xlabel('Iterasi')
+                    ax.set_ylabel(metric_name)
+                    ax.set_title(f'Learning Curve: Training vs Validation {metric_name}')
+                    ax.legend()
+                    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
 
-                    train_pred = svc.predict(X_sub_scaled)
-                    val_pred = svc.predict(X_val_scaled)
-                    test_pred = svc.predict(X_test_scaled)
+                    # adjust y-limits to focus on relevant range
+                    min_y = min(float(np.min(tr)), float(np.min(va))) - 0.05
+                    ax.set_ylim(bottom=max(0.0, min_y), top=1.01)
 
-                    train_scores.append(accuracy_score(y_sub, train_pred))
-                    val_scores.append(accuracy_score(y_val, val_pred))
-                    test_scores.append(accuracy_score(y_test, test_pred))
+                    st.pyplot(fig)
 
-                # Plot: train vs val
-                fig1, ax1 = plt.subplots()
-                ax1.plot(fractions, train_scores, label='Train Accuracy', marker='o')
-                ax1.plot(fractions, val_scores, label='Validation Accuracy', marker='o')
-                ax1.set_xlabel('Fraction of Training Data Used')
-                ax1.set_ylabel('Accuracy')
-                ax1.set_title('SVC Learning Curve: Train vs Validation')
-                ax1.legend()
-                st.pyplot(fig1)
+                    # show metrics at best iteration when available
+                    if best_iter is not None and 0 <= best_iter < common_len:
+                        st.subheader('Skor Terbaik')
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric('Akurasi Training Terbaik', f'{tr[best_iter]:.4f}')
+                        with col2:
+                            st.metric('Akurasi Validasi Terbaik', f'{va[best_iter]:.4f}')
+                        
+                        st.subheader("Analisis Learning Curve")
+                        st.markdown(f"""
+                        Grafik di atas menunjukkan performa model pada data training dan validasi selama proses training.
+                        - **Garis Hijau (Training {metric_name})**: Menunjukkan seberapa baik model mempelajari data training.
+                        - **Garis Oranye (Validation {metric_name})**: Menunjukkan seberapa baik model dapat menggeneralisasi pengetahuannya ke data baru (data validasi).
 
-                # Plot: train vs test
-                fig2, ax2 = plt.subplots()
-                ax2.plot(fractions, train_scores, label='Train Accuracy', marker='o')
-                ax2.plot(fractions, test_scores, label='Test Accuracy', marker='o')
-                ax2.set_xlabel('Fraction of Training Data Used')
-                ax2.set_ylabel('Accuracy')
-                ax2.set_title('SVC Learning Curve: Train vs Test')
-                ax2.legend()
-                st.pyplot(fig2)
+                        **Mengapa Iterasi Terbaik di {best_iter + 1}?**
 
-                st.subheader('SVC Parameters')
-                st.write(svc_params)
+                        Iterasi terbaik ({best_iter + 1}) adalah titik di mana model mencapai **skor validasi tertinggi ({va[best_iter]:.4f})**. Ini dianggap sebagai titik optimal sebelum model mulai *overfitting*.
 
-            except Exception as e:
-                st.error(f"Gagal menghitung learning curve SVC: {e}")
+                        - **Sebelum Iterasi {best_iter + 1}**: Kedua kurva (training dan validasi) sama-sama naik, menunjukkan model sedang dalam proses belajar yang sehat.
+                        - **Setelah Iterasi {best_iter + 1}**: Perhatikan bahwa kurva training kemungkinan akan terus naik (atau mendatar di nilai tinggi), sementara kurva validasi mulai **stagnan atau bahkan menurun**. Ini adalah tanda klasik **overfitting**. Artinya, model mulai "menghafal" data training alih-alih belajar pola umum yang bisa diterapkan pada data baru.
 
-    # --- Learning curve for CatBoost (train vs val and train vs test)
-    st.subheader("Learning Curve CatBoost (Train vs Val & Train vs Test)")
-    st.write("Melatih CatBoost pada beberapa fraksi data training untuk melihat tren akurasi.")
-    if st.button("Hitung Learning Curve CatBoost"):
-        with st.spinner("Menghitung learning curve CatBoost — ini mungkin memakan waktu cukup lama..."):
-            try:
-                from catboost import CatBoostClassifier
+                        Dengan memilih model pada iterasi {best_iter + 1}, kita mendapatkan versi model dengan kemampuan generalisasi terbaik untuk data yang belum pernah dilihat sebelumnya.
+                        """)
+        else:
+            st.info('Tidak ada histori training/validation pada model untuk menampilkan learning curve CatBoost.')
+    except Exception as e:
+        st.error(f'Gagal membuat learning curve CatBoost: {e}')
 
-                fractions = [0.1, 0.3, 0.5, 0.7, 1.0]
-                train_scores = []
-                val_scores = []
-                test_scores = []
-
-                # Parameters per user's request (depth set to 8, learning_rate to 0.04)
-                cb_params = {
-                    'iterations': 1000,
-                    'learning_rate': 0.04,
-                    'depth': 8,
-                    'cat_features': [c for c in (ALL_FEATURES or []) if c in ((CATEGORICAL_COLS or []) + (ORDINAL_COLS or []))],
-                    'use_best_model': True,
-                    'eval_metric': 'Accuracy',
-                    'od_wait': 50,
-                    'od_type': 'Iter',
-                    'loss_function': 'MultiClass',
-                    'random_seed': 42,
-                    'verbose': 100
-                }
-
-                max_samples = min(len(X_train), 2000)
-
-                for frac in fractions:
-                    n = max(10, int(frac * max_samples))
-                    X_sub = X_train.sample(n, random_state=42)
-                    y_sub = y_train.loc[X_sub.index]
-
-                    cb = CatBoostClassifier(**cb_params)
-                    cb.fit(X_sub, y_sub)
-
-                    train_pred = cb.predict(X_sub)
-                    val_pred = cb.predict(X_val)
-                    test_pred = cb.predict(X_test)
-
-                    train_scores.append(accuracy_score(y_sub, train_pred))
-                    val_scores.append(accuracy_score(y_val, val_pred))
-                    test_scores.append(accuracy_score(y_test, test_pred))
-
-                # Plot: train vs val
-                fig_cb1, ax_cb1 = plt.subplots()
-                ax_cb1.plot(fractions, train_scores, label='Train Accuracy', marker='o')
-                ax_cb1.plot(fractions, val_scores, label='Validation Accuracy', marker='o')
-                ax_cb1.set_xlabel('Fraction of Training Data Used')
-                ax_cb1.set_ylabel('Accuracy')
-                ax_cb1.set_title('CatBoost Learning Curve: Train vs Validation')
-                ax_cb1.legend()
-                st.pyplot(fig_cb1)
-
-                # Plot: train vs test
-                fig_cb2, ax_cb2 = plt.subplots()
-                ax_cb2.plot(fractions, train_scores, label='Train Accuracy', marker='o')
-                ax_cb2.plot(fractions, test_scores, label='Test Accuracy', marker='o')
-                ax_cb2.set_xlabel('Fraction of Training Data Used')
-                ax_cb2.set_ylabel('Accuracy')
-                ax_cb2.set_title('CatBoost Learning Curve: Train vs Test')
-                ax_cb2.legend()
-                st.pyplot(fig_cb2)
-
-                st.subheader('CatBoost Parameters')
-                st.write(cb_params)
-
-            except Exception as e:
-                st.error(f"Gagal menghitung learning curve CatBoost: {e}")
-                return
-            
+    
+                
 def _show_user_segment():
     st.header("Segmen User")
     st.write("Menampilkan daftar user yang sudah terdaftar dan data input/prediksi mereka (jika tersedia).")
