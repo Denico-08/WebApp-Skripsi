@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
+from catboost import CatBoostClassifier
 from Web_Prediksi_Obesity import load_all_assets
 from Login import require_auth, logout
 from Connection.supabase_client import get_supabase_client
@@ -263,6 +264,78 @@ def _show_model_segment():
 
             except Exception as e:
                 st.error(f"Gagal menghitung learning curve SVC: {e}")
+
+    # --- Learning curve for CatBoost (train vs val and train vs test)
+    st.subheader("Learning Curve CatBoost (Train vs Val & Train vs Test)")
+    st.write("Melatih CatBoost pada beberapa fraksi data training untuk melihat tren akurasi.")
+    if st.button("Hitung Learning Curve CatBoost"):
+        with st.spinner("Menghitung learning curve CatBoost — ini mungkin memakan waktu cukup lama..."):
+            try:
+                from catboost import CatBoostClassifier
+
+                fractions = [0.1, 0.3, 0.5, 0.7, 1.0]
+                train_scores = []
+                val_scores = []
+                test_scores = []
+
+                # Parameters per user's request (depth set to 8, learning_rate to 0.04)
+                cb_params = {
+                    'iterations': 1000,
+                    'learning_rate': 0.04,
+                    'depth': 8,
+                    'cat_features': [c for c in (ALL_FEATURES or []) if c in ((CATEGORICAL_COLS or []) + (ORDINAL_COLS or []))],
+                    'use_best_model': True,
+                    'eval_metric': 'Accuracy',
+                    'od_wait': 50,
+                    'od_type': 'Iter',
+                    'loss_function': 'MultiClass',
+                    'random_seed': 42,
+                    'verbose': 100
+                }
+
+                max_samples = min(len(X_train), 2000)
+
+                for frac in fractions:
+                    n = max(10, int(frac * max_samples))
+                    X_sub = X_train.sample(n, random_state=42)
+                    y_sub = y_train.loc[X_sub.index]
+
+                    cb = CatBoostClassifier(**cb_params)
+                    cb.fit(X_sub, y_sub)
+
+                    train_pred = cb.predict(X_sub)
+                    val_pred = cb.predict(X_val)
+                    test_pred = cb.predict(X_test)
+
+                    train_scores.append(accuracy_score(y_sub, train_pred))
+                    val_scores.append(accuracy_score(y_val, val_pred))
+                    test_scores.append(accuracy_score(y_test, test_pred))
+
+                # Plot: train vs val
+                fig_cb1, ax_cb1 = plt.subplots()
+                ax_cb1.plot(fractions, train_scores, label='Train Accuracy', marker='o')
+                ax_cb1.plot(fractions, val_scores, label='Validation Accuracy', marker='o')
+                ax_cb1.set_xlabel('Fraction of Training Data Used')
+                ax_cb1.set_ylabel('Accuracy')
+                ax_cb1.set_title('CatBoost Learning Curve: Train vs Validation')
+                ax_cb1.legend()
+                st.pyplot(fig_cb1)
+
+                # Plot: train vs test
+                fig_cb2, ax_cb2 = plt.subplots()
+                ax_cb2.plot(fractions, train_scores, label='Train Accuracy', marker='o')
+                ax_cb2.plot(fractions, test_scores, label='Test Accuracy', marker='o')
+                ax_cb2.set_xlabel('Fraction of Training Data Used')
+                ax_cb2.set_ylabel('Accuracy')
+                ax_cb2.set_title('CatBoost Learning Curve: Train vs Test')
+                ax_cb2.legend()
+                st.pyplot(fig_cb2)
+
+                st.subheader('CatBoost Parameters')
+                st.write(cb_params)
+
+            except Exception as e:
+                st.error(f"Gagal menghitung learning curve CatBoost: {e}")
 
 
 def _show_user_segment():

@@ -28,11 +28,11 @@ def get_model_paths():
     model_dir = os.path.join(base_dir, "Model_Website")
     
     return {
-        'model': os.path.join(model_dir, "catboost_obesity_model.cbm"),
-        'target_encoder': os.path.join(model_dir, "label_encoder_y_v3.pkl"),
-        'feature_names': os.path.join(model_dir, "feature_names_v3.pkl"),
-        'x_train': os.path.join(model_dir, "X_train_processed.pkl"),
-        'class_names': os.path.join(model_dir, "class_names_y_v3.pkl")
+        'model': os.path.join(model_dir, "CatBoost_Model.cbm"),
+        'target_encoder': os.path.join(model_dir, "Y_Processed.pkl.pkl"),
+        'feature_names': os.path.join(model_dir, "X_ClassNames.pkl"),
+        'x_train': os.path.join(model_dir, "X_Train_Processed.pkl"),
+        'class_names': os.path.join(model_dir, "Y_Processed.pkl")
     }
 
 def preprocess_input_data(input_dict, all_features_list):
