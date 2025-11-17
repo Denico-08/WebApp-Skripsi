@@ -4,7 +4,7 @@ from Connection.supabase_client import get_supabase_client
 def authenticate(email: str, password: str) -> bool:
     
     if not email or not password:
-        st.error("❌ Email dan password harus diisi")
+        st.error("Email dan password harus diisi")
         return False
     
     try:
@@ -27,14 +27,12 @@ def authenticate(email: str, password: str) -> bool:
             st.session_state.user_name = user_data["Nama"] if isinstance(user_data, dict) else email
             return True
         else:
-            available_emails = [u["Email"] if isinstance(u, dict) else "N/A" for u in (all_users_response.data or [])]
-            
             return False
             
     except Exception as e:
-        st.error(f"❌ Error saat login: {str(e)}")
+        st.error(f"Error saat login: {str(e)}")
         
-        with st.expander("❌ ERROR DETAILS"):
+        with st.expander("ERROR DETAILS"):
             st.write(f"**Error Type:** {type(e).__name__}")
             st.write(f"**Error Message:** {str(e)}")
         
@@ -62,7 +60,6 @@ def require_auth(message: str = "Silakan login terlebih dahulu:") -> None:
 
 
 def login_page() -> None:
-    """Renders the login page and handles authentication logic."""
     if "user_authenticated" not in st.session_state:
         st.session_state.user_authenticated = False
         st.session_state.user = None
@@ -70,20 +67,16 @@ def login_page() -> None:
         st.session_state.user_role = None
         st.session_state.user_name = None
 
-    # This part should not be reached if the user is already authenticated,
-    # as the main app router would have already directed them away.
-    # However, it's good practice to keep it.
     if st.session_state.user_authenticated:
-        st.success(f"✅ Anda sudah login sebagai: {st.session_state.user_name}")
+        st.success(f"Anda sudah login sebagai: {st.session_state.user_name}")
         st.info("Mengalihkan ke halaman utama...")
-        # In a multi-page app, the main router handles the redirection.
-        # A rerun is enough to trigger the check in the main app.
+
         st.rerun()
         return
 
     # User belum login - tampilkan form login
     st.set_page_config(page_title="Login", layout="centered")
-    st.title("🔑 Selamat Datang!")
+    st.title("Selamat Datang!")
     st.subheader("Silakan Login untuk Melanjutkan")
     
     with st.form("login_form"):
@@ -102,15 +95,15 @@ def login_page() -> None:
 
         if submitted:
             if not email or not password:
-                st.error("❌ Email dan password harus diisi")
+                st.error("Email dan password harus diisi")
             else:
                 if authenticate(email, password):
                     # Set session state and rerun to let the main app router redirect
                     st.session_state.user_authenticated = True
-                    st.success(f"✅ Login berhasil! Selamat datang, {st.session_state.user_name}!")
+                    st.success(f"Login berhasil! Selamat datang, {st.session_state.user_name}!")
                     st.rerun()
                 else:
-                    st.error("❌ Email atau password salah")
+                    st.error("Email atau password salah")
 
     st.markdown("---")
     st.write("Belum punya akun?")

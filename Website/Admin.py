@@ -4,67 +4,18 @@ import numpy as np
 import os
 from matplotlib import pyplot as plt
 import seaborn as sns
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc
 from sklearn.preprocessing import StandardScaler, label_binarize
-from sklearn.svm import SVC
-from catboost import CatBoostClassifier
+
 from Web_Prediksi_Obesity import load_all_assets
 from Login import require_auth, logout
 from Connection.supabase_client import get_supabase_client
-from config import TARGET_NAME, CONTINUOUS_COLS, CATEGORICAL_COLS, ORDINAL_COLS, GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP, SCC_MAP, SMOKE_MAP, CAEC_MAP, CALC_MAP, MTRANS_MAP
-
+from config import TARGET_NAME
 
 def _get_dataset_path():
     base = os.path.dirname(os.path.abspath(__file__))
     # dataset is at project root under 'Dataset'
     return os.path.normpath(os.path.join(base, '..', 'Dataset', 'combined_dataset.csv'))
-
-
-def _preprocess_dataframe(df: pd.DataFrame, feature_order: list):
-    # Work on a copy
-    df = df.copy()
-
-    # Ensure continuous cols numeric
-    for c in CONTINUOUS_COLS:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(df[c].median())
-
-    # Map categorical
-    if 'Gender' in df.columns:
-        df['Gender'] = df['Gender'].map(GENDER_MAP).fillna(0).astype(int)
-    if 'family_history_with_overweight' in df.columns:
-        df['family_history_with_overweight'] = df['family_history_with_overweight'].map(FAMILY_HISTORY_MAP).fillna(0).astype(int)
-    if 'FAVC' in df.columns:
-        df['FAVC'] = df['FAVC'].map(FAVC_MAP).fillna(0).astype(int)
-    if 'SCC' in df.columns:
-        df['SCC'] = df['SCC'].map(SCC_MAP).fillna(0).astype(int)
-    if 'SMOKE' in df.columns:
-        df['SMOKE'] = df['SMOKE'].map(SMOKE_MAP).fillna(0).astype(int)
-    if 'CAEC' in df.columns:
-        df['CAEC'] = df['CAEC'].map(CAEC_MAP).fillna(0).astype(int)
-    if 'CALC' in df.columns:
-        df['CALC'] = df['CALC'].map(CALC_MAP).fillna(0).astype(int)
-    if 'MTRANS' in df.columns:
-        df['MTRANS'] = df['MTRANS'].map(MTRANS_MAP).fillna(1).astype(int)
-
-    # Ordinal
-    ordinal_defaults = {'FCVC': 2, 'NCP': 3, 'CH2O': 2, 'FAF': 1, 'TUE': 1}
-    for col in ORDINAL_COLS:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(ordinal_defaults.get(col, 1)).astype(int)
-
-    # Keep only features expected by model and in correct order
-    missing = [f for f in feature_order if f not in df.columns]
-    if missing:
-        # create missing with default 0
-        for m in missing:
-            df[m] = 0
-
-    df = df[feature_order]
-
-    return df
-
 
 def _show_dataset_segment():
     st.header("Segmen Dataset")
@@ -147,13 +98,13 @@ def _evaluate_and_display(model, encoder, ALL_FEATURES, df_features, y_true, lab
         tpr = dict()
         roc_auc = dict()
         for i in range(n_classes):
-            fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], proba[:, i])
+            fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], proba[:, i])# type: ignore
             roc_auc[i] = auc(fpr[i], tpr[i])
 
         fig, ax = plt.subplots(figsize=(8, 7))
         
         # Using a color cycle
-        colors = plt.cycler(color=plt.cm.viridis(np.linspace(0, 1, n_classes)))
+        colors = plt.cycler(color=plt.cm.viridis(np.linspace(0, 1, n_classes)))# type: ignore
         ax.set_prop_cycle(colors)
 
         for i in range(n_classes):
@@ -162,8 +113,8 @@ def _evaluate_and_display(model, encoder, ALL_FEATURES, df_features, y_true, lab
                     ''.format(encoder.classes_[i], roc_auc[i]))
 
         ax.plot([0, 1], [0, 1], 'k--', lw=2, label='Chance')
-        ax.set_xlim([0.0, 1.0])
-        ax.set_ylim([0.0, 1.05])
+        ax.set_xlim([0.0, 1.0])# type: ignore
+        ax.set_ylim([0.0, 1.05])# type: ignore
         ax.set_xlabel('False Positive Rate')
         ax.set_ylabel('True Positive Rate')
         ax.set_title('Receiver Operating Characteristic (One-vs-Rest)')
@@ -281,22 +232,6 @@ def _show_model_segment():
                             st.metric('Akurasi Training Terbaik', f'{tr[best_iter]:.4f}')
                         with col2:
                             st.metric('Akurasi Validasi Terbaik', f'{va[best_iter]:.4f}')
-                        
-                        st.subheader("Analisis Learning Curve")
-                        st.markdown(f"""
-                        Grafik di atas menunjukkan performa model pada data training dan validasi selama proses training.
-                        - **Garis Hijau (Training {metric_name})**: Menunjukkan seberapa baik model mempelajari data training.
-                        - **Garis Oranye (Validation {metric_name})**: Menunjukkan seberapa baik model dapat menggeneralisasi pengetahuannya ke data baru (data validasi).
-
-                        **Mengapa Iterasi Terbaik di {best_iter + 1}?**
-
-                        Iterasi terbaik ({best_iter + 1}) adalah titik di mana model mencapai **skor validasi tertinggi ({va[best_iter]:.4f})**. Ini dianggap sebagai titik optimal sebelum model mulai *overfitting*.
-
-                        - **Sebelum Iterasi {best_iter + 1}**: Kedua kurva (training dan validasi) sama-sama naik, menunjukkan model sedang dalam proses belajar yang sehat.
-                        - **Setelah Iterasi {best_iter + 1}**: Perhatikan bahwa kurva training kemungkinan akan terus naik (atau mendatar di nilai tinggi), sementara kurva validasi mulai **stagnan atau bahkan menurun**. Ini adalah tanda klasik **overfitting**. Artinya, model mulai "menghafal" data training alih-alih belajar pola umum yang bisa diterapkan pada data baru.
-
-                        Dengan memilih model pada iterasi {best_iter + 1}, kita mendapatkan versi model dengan kemampuan generalisasi terbaik untuk data yang belum pernah dilihat sebelumnya.
-                        """)
         else:
             st.info('Tidak ada histori training/validation pada model untuk menampilkan learning curve CatBoost.')
     except Exception as e:
