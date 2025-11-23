@@ -1,8 +1,8 @@
-
 import streamlit as st
 from Login import login_page
 from Signup import signup_page
 from Web_Prediksi_Obesity import run_prediction_app
+from History_User import history_page  # Impor fungsi halaman riwayat
 
 # Initialize session state
 if "user_authenticated" not in st.session_state:
@@ -16,11 +16,22 @@ if not st.session_state.user_authenticated:
         login_page()
     elif st.session_state.page == "signup":
         signup_page()
+    else:
+        login_page() # Default to login
 else:
-    # If authenticated, route based on user role
+    # If authenticated, route based on user role and page state
     user_role = st.session_state.get('user_role', None)
+    page = st.session_state.get('page')
+
     if user_role == "Admin":
         from Admin import admin_page_
         admin_page_()
-    else:
-        run_prediction_app()
+    else:  # For regular users
+        if page == "riwayat":
+            history_page()
+        elif page == "prediksi":
+            run_prediction_app()
+        else:
+            # Default to the prediction app for any other state
+            st.session_state.page = "prediksi"
+            run_prediction_app()

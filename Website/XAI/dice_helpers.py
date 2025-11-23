@@ -7,8 +7,7 @@ from config import ALL_CATEGORICAL_COLS, CONTINUOUS_COLS, ORDINAL_COLS, TARGET_N
 import traceback
 
 class DiceCatBoostWrapper:
-    """Wrapper untuk model CatBoost agar kompatibel dengan DiCE."""
-    
+
     def __init__(self, model, feature_names, continuous_features, categorical_features, class_labels=None):
         self.model = model
         self.feature_names = feature_names
@@ -238,7 +237,7 @@ def get_dice_recommendations(x_train_encoded, model_obj, encoders, input_df_proc
                     # Jika error terkait target class, coba dengan numeric encoding
                     if 'could not be identified' in error_msg.lower() or 'target' in error_msg.lower():
                         try:
-                            st.write(f"      🔄 Mencoba dengan numeric encoding...")
+                            st.write(f"🔄 Mencoba dengan numeric encoding...")
                             
                             # Buat data dengan numeric target
                             df_dice_numeric = df_dice.copy()

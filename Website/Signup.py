@@ -3,15 +3,12 @@ from Connection.supabase_client import get_supabase_client
 
 # --- Signup Page UI and Logic ---
 def signup_page():
-    """
-    Renders the complete signup page with a form and links to the login page.
-    """
     st.set_page_config(page_title="Daftar Akun", layout="centered")
-    st.title("📝 Daftar Akun Baru")
+    st.title("Daftar Akun Baru")
     st.write("Silakan isi form di bawah ini untuk membuat akun baru.")
 
     # Button to go back to Login page
-    if st.button("‹ Kembali ke Login"):
+    if st.button("Kembali ke Login"):
         st.session_state.page = "login"
         st.rerun()
 
@@ -44,15 +41,15 @@ def signup_page():
         if submitted:
             # --- Input Validation ---
             if not all([email, full_name, password, password_confirm]):
-                st.error("❌ Semua field harus diisi.")
+                st.error("Semua field harus diisi.")
                 return
 
             if password != password_confirm:
-                st.error("❌ Password dan konfirmasi password tidak cocok.")
+                st.error("Password dan konfirmasi password tidak cocok.")
                 return
             
             if len(password) < 6:
-                st.error("❌ Password minimal harus 6 karakter.")
+                st.error("Password minimal harus 6 karakter.")
                 return
 
             # --- Signup Process ---
@@ -80,7 +77,7 @@ def signup_page():
                     # Insert profile data into the public 'User' table
                     supabase.table("User").insert(insert_data).execute()
 
-                    st.success("✅ Pendaftaran berhasil! Silakan kembali ke halaman login untuk masuk.")
+                    st.success("Pendaftaran berhasil! Silakan kembali ke halaman login untuk masuk.")
                     # The button to go back to login is already present outside the form.
 
                 else:
@@ -89,8 +86,8 @@ def signup_page():
             except Exception as e:
                 error_msg = str(e)
                 if "user already registered" in error_msg.lower():
-                    st.error("❌ Email ini sudah terdaftar. Silakan gunakan email lain atau login.")
+                    st.error("Email ini sudah terdaftar. Silakan gunakan email lain atau login.")
                 elif "invalid" in error_msg.lower():
-                    st.error("❌ Email atau password tidak valid.")
+                    st.error("Email atau password tidak valid.")
                 else:
                     st.error(f"Terjadi kesalahan: {error_msg}")
