@@ -7,8 +7,7 @@ from config import ALL_CATEGORICAL_COLS, CONTINUOUS_COLS, ORDINAL_COLS, TARGET_N
 import traceback
 
 class DiceCatBoostWrapper:
-    """Wrapper untuk model CatBoost agar kompatibel dengan DiCE."""
-    
+
     def __init__(self, model, feature_names, continuous_features, categorical_features, class_labels=None):
         self.model = model
         self.feature_names = feature_names

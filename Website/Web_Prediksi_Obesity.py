@@ -16,7 +16,7 @@ from Connection.supabase_client import (
 )
 from XAI.dice_helpers import decode_dice_dataframe, get_dice_recommendations
 from XAI.lime_helpers import initialize_lime_explainer, predict_proba_catboost_for_lime, get_step_description, get_next_target_class
-
+from History_User import history_page
 from config import (
     TARGET_NAME, CONTINUOUS_COLS, ORDINAL_COLS,
     GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP, SCC_MAP, SMOKE_MAP,
@@ -33,7 +33,7 @@ def get_model_paths():
     model_dir = os.path.join(base_dir, "Model_Website")
     
     return {
-        'model': os.path.join(model_dir, "CatBoost_Model.cbm"),
+        'model': os.path.join(model_dir, "catboost_model2.cbm"),
         'target_encoder': os.path.join(model_dir, "Y_Processed.pkl"),
         'feature_names': os.path.join(model_dir, "X_ClassNames.pkl"),
         'x_train': os.path.join(model_dir, "X_Train_Processed.pkl"),
@@ -41,7 +41,7 @@ def get_model_paths():
     }
 
 def preprocess_input_data(input_dict, all_features_list):
-
+    
     df = pd.DataFrame([input_dict])
     
     if df.empty:
@@ -146,8 +146,7 @@ def load_all_assets():
 # ================================================================================
 
 def run_prediction_app():
-    """Fungsi utama aplikasi Streamlit."""
-    
+
     st.set_page_config(page_title="Prediksi Obesitas (XAI)", layout="wide")
     
     # Sidebar - User Info
@@ -155,6 +154,10 @@ def run_prediction_app():
         st.title(f"Halo, {st.session_state.get('user_name', 'Pengguna')}!")
         st.write(f"**Email:** {st.session_state.get('user')}")
         st.write(f"**Role:** {st.session_state.get('user_role')}")
+        
+        if st.button("Riwayat Pengguna", use_container_width=True):
+            st.session_state.page = "riwayat"
+            st.rerun()
         
         if st.button("Logout", use_container_width=True):
             logout()
@@ -224,7 +227,7 @@ def run_prediction_app():
             'Apakah anda mengonsumsi makanan cepat saji lebih dari 2x seminggu?',
             list(FAVC_MAP.keys()),
             index=1,
-            format_func=lambda x: 'Yes' if x == 'Ya' else 'no',
+            format_func=lambda x: 'Tidak' if x == 'no' else 'Ya',
             key='favc'
         )
         ncp = st.number_input('Makan utama per hari', min_value=1, max_value=4, value=3, step=1, key='ncp')
@@ -320,11 +323,6 @@ def run_prediction_app():
                 user_input_to_save = st.session_state.get('user_input_raw')
                 if user_input_to_save and isinstance(user_input_to_save, dict):
                     ok, resp = insert_input_to_supabase(user_input_to_save)
-                    if ok:
-                        id_input = resp  # Simpan ID_Input yang dikembalikan
-                        st.info("Data input berhasil disimpan ke database.")
-                    else:
-                        st.warning(f"Gagal menyimpan data input ke database: {resp}")
             except Exception as e:
                 st.warning(f"Terjadi error saat menyimpan data input: {str(e)}")
 
@@ -343,8 +341,6 @@ def run_prediction_app():
                         probabilitas=float(prediction_probability)
                     )
                     if ok_pred:
-                        st.info("Hasil prediksi berhasil disimpan.")
-                        # Try to extract inserted prediction id and save to session for linking LIME/DiCE
                         try:
                             inserted = resp_pred
                             id_prediksi = None
@@ -406,7 +402,7 @@ def run_prediction_app():
                         lime_exp = lime_explainer.explain_instance(
                             input_df_processed[ALL_FEATURES].values[0],
                             lambda x: predict_proba_catboost_for_lime(x, model, ALL_FEATURES),
-                            num_features=8,
+                            num_features=5,
                             top_labels=1
                         )
                         
@@ -424,10 +420,6 @@ def run_prediction_app():
                             id_prediksi = st.session_state.get('id_prediksi')
                             if id_prediksi is not None:
                                 ok_f, resp_f = insert_faktor_dominan(id_prediksi=id_prediksi, top_features=top_features)
-                                if ok_f:
-                                    st.success('Top 5 fitur LIME berhasil disimpan ke Supabase.')
-                                else:
-                                    st.warning(f'Gagal menyimpan fitur dominan: {resp_f}')
                         except Exception as e:
                             st.warning(f'Gagal mengekstrak atau menyimpan fitur LIME: {e}')
                     except Exception as e:

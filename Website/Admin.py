@@ -45,7 +45,6 @@ def _show_dataset_segment():
     st.subheader("Preview Data")
     st.dataframe(df.head(200))
 
-
 def _evaluate_and_display(model, encoder, ALL_FEATURES, df_features, y_true, label_prefix=""):
     # Predict
     try:
@@ -124,7 +123,6 @@ def _evaluate_and_display(model, encoder, ALL_FEATURES, df_features, y_true, lab
 
     except Exception as e:
         st.warning(f"Gagal membuat ROC curve: {e}")
-
 
 def _show_model_segment():
     st.header("Segmen Model")
@@ -236,9 +234,7 @@ def _show_model_segment():
             st.info('Tidak ada histori training/validation pada model untuk menampilkan learning curve CatBoost.')
     except Exception as e:
         st.error(f'Gagal membuat learning curve CatBoost: {e}')
-
-    
-                
+            
 def _show_user_segment():
     st.header("Segmen User")
     st.write("Menampilkan daftar user yang sudah terdaftar dan data input/prediksi mereka (jika tersedia).")
