@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,15 +6,14 @@ import os
 from matplotlib import pyplot as plt
 from catboost import CatBoostClassifier
 from lime.lime_tabular import LimeTabularExplainer
-import traceback
 from Login import logout
 from Connection.supabase_client import (
     insert_input_to_supabase,
-    insert_prediction_to_supabase,
     insert_faktor_dominan,
+    insert_prediction_to_supabase,
     insert_rekomendasi_to_supabase,
 )
-from XAI.dice_helpers import decode_dice_dataframe, generate_multi_step_recommendations
+from XAI.dice_helpers import decode_dice_dataframe, get_dice_recommendations
 from XAI.lime_helpers import initialize_lime_explainer, predict_proba_catboost_for_lime, get_step_description, get_next_target_class
 from History_User import history_page
 from config import (
@@ -37,8 +35,7 @@ def get_model_paths():
         'model': os.path.join(model_dir, "catboost_model2.cbm"),
         'target_encoder': os.path.join(model_dir, "Y_Processed.pkl"),
         'feature_names': os.path.join(model_dir, "X_ClassNames.pkl"),
-        'x_train': os.path.join(model_dir, "X_train_smote.pkl"),
-        'y_train': os.path.join(model_dir, "y_train_smote.pkl"), # Path untuk y_train
+        'x_train': os.path.join(model_dir, "X_Train_Processed.pkl"),
         'class_names': os.path.join(model_dir, "Y_ClassNames.pkl")
     }
 
@@ -115,22 +112,31 @@ def load_all_assets():
         # Load training data
         x_train_array = joblib.load(paths['x_train'])
         
+        # Konversi ke DataFrame jika perlu
         if isinstance(x_train_array, np.ndarray):
-            x_train_encoded = pd.DataFrame(x_train_array, columns=all_features)
+            if all_features:
+                x_train_encoded = pd.DataFrame(x_train_array, columns=all_features)
+            else:
+                st.error("Gagal konversi: 'all_features' tidak valid.")
+                return None, None, None, None, None
         elif isinstance(x_train_array, pd.DataFrame):
             x_train_encoded = x_train_array
         else:
             st.error(f"Tipe X_train tidak didukung: {type(x_train_array)}")
             return None, None, None, None, None
-
+        
+        # Validasi hasil
+        if not isinstance(x_train_encoded, pd.DataFrame):
+            st.error("X_train tidak berhasil dikonversi ke DataFrame.")
+            return None, None, None, None, None
+        
         return model, encoders, all_features, class_names, x_train_encoded
-
+        
     except FileNotFoundError as e:
         st.error(f"File tidak ditemukan: {e}")
         return None, None, None, None, None
     except Exception as e:
         st.error(f"Error saat memuat aset: {e}")
-        st.error(f"Traceback: {traceback.format_exc()}")
         return None, None, None, None, None
 
 # ================================================================================
@@ -314,7 +320,7 @@ def run_prediction_app():
             try:
                 user_input_to_save = st.session_state.get('user_input_raw')
                 if user_input_to_save and isinstance(user_input_to_save, dict):
-                    ok, resp = insert_input_to_supabase(user_input_to_save)
+                    ok, id_input = insert_input_to_supabase(user_input_to_save, st.session_state.get('user_id'))
             except Exception as e:
                 st.warning(f"Terjadi error saat menyimpan data input: {str(e)}")
 
@@ -403,15 +409,15 @@ def run_prediction_app():
 
                         # Save top 5 LIME features to Supabase under Faktor_Dominan
                         try:
-                            top_list = lime_exp.as_list(label=predicted_class_index)
-                            top5 = top_list[:5]
-                            top_features = []
-                            for feat, weight in top5:
-                                top_features.append({'feature': str(feat), 'weight': float(weight)})
-
                             id_prediksi = st.session_state.get('id_prediksi')
                             if id_prediksi is not None:
-                                ok_f, resp_f = insert_faktor_dominan(id_prediksi=id_prediksi, top_features=top_features)
+                                # Extract top features from LIME explanation
+                                top_features_lime = lime_exp.as_list(label=predicted_class_index)[:5]
+                                top_features_json = {feature: value for feature, value in top_features_lime}
+                                ok_f, resp_f = insert_faktor_dominan(
+                                    id_prediksi=id_prediksi,
+                                    top_features=top_features_json,
+                                )
                         except Exception as e:
                             st.warning(f'Gagal mengekstrak atau menyimpan fitur LIME: {e}')
                     except Exception as e:
@@ -428,74 +434,79 @@ def run_prediction_app():
                 if predicted_class == next_target:
                     st.success("""
                     **Selamat!**
+                    
                     Berat badan Anda sudah dalam kategori **Normal** atau lebih baik, sehingga tidak 
                     diperlukan rekomendasi perubahan. Pertahankan gaya hidup sehat Anda!
                     """)
                 else:
-                    try:
-                        allow_weight_change = st.checkbox("Izinkan perubahan berat badan dalam rekomendasi", True)
-                        
-                        recommendations_per_step = generate_multi_step_recommendations(
-                            x_train_encoded,
-                            model,
-                            encoders,
-                            input_df_processed,
-                            all_steps,
-                            ALL_FEATURES,
-                            allow_weight_change=allow_weight_change
-                        )
-                        
-                        if recommendations_per_step:
-                            for i, step_result in enumerate(recommendations_per_step):
-                                st.markdown("---")
-                                st.markdown(f"### Langkah {i+1}: Dari **{step_result['from'].replace('_', ' ')}** ke **{step_result['to'].replace('_', ' ')}**")
-                                
-                                # Decode data untuk ditampilkan
-                                original_decoded = decode_dice_dataframe(step_result['original_input_processed'], encoders, ALL_FEATURES)
-                                recommendations_decoded = decode_dice_dataframe(step_result['recommendations_df'], encoders, ALL_FEATURES)
-                                
-                                st.markdown("**Kondisi Awal (Untuk Langkah Ini)**")
-                                st.dataframe(original_decoded, use_container_width=True)
-                                
-                                st.markdown(f"**Rekomendasi untuk mencapai {step_result['to'].replace('_', ' ')}**")
-                                st.dataframe(recommendations_decoded, use_container_width=True)
-
-                            # Save final DiCE recommendation to Supabase
-                            final_recommendation = recommendations_per_step[-1]
-                            final_target = final_recommendation['to']
-                            final_original_decoded = decode_dice_dataframe(final_recommendation['original_input_processed'], encoders, ALL_FEATURES)
-                            final_recs_decoded = decode_dice_dataframe(final_recommendation['recommendations_df'], encoders, ALL_FEATURES)
-
-                            try:
-                                id_prediksi = st.session_state.get('id_prediksi')
-                                if id_prediksi is not None:
-                                    original = final_original_decoded.iloc[0].to_dict()
-                                    suggested = final_recs_decoded.iloc[0].to_dict()
-                                    changes = {}
-                                    for k, v in suggested.items():
-                                        if k == TARGET_NAME: continue
-                                        orig_val = original.get(k)
-                                        if orig_val != v:
-                                            changes[k] = {'from': orig_val, 'to': v}
-                                    
-                                    ok_r, resp_r = insert_rekomendasi_to_supabase(
-                                        id_prediksi=id_prediksi,
-                                        target_prediksi=final_target,
-                                        perubahan_prediksi=changes
-                                    )
-                                    if ok_r:
-                                        st.success('Rekomendasi DiCE berhasil disimpan ke Supabase.')
-                                    else:
-                                        st.warning(f'Gagal menyimpan rekomendasi: {resp_r}')
-                            except Exception as e:
-                                st.warning(f'Gagal menyimpan rekomendasi ke Supabase: {e}')
-
-                        else:
-                            st.warning("Tidak dapat menemukan rekomendasi perubahan yang sesuai.")
                     
-                    except Exception as e:
-                        st.error(f"Gagal menghasilkan rekomendasi bertahap: {e}")
-                        st.error(f"Traceback: {traceback.format_exc()}")
+                    total_steps = len(all_steps) - 1
+                    current_step = 1
+                    
+                    with st.spinner(f"Mencari rekomendasi untuk mencapai {next_target.replace('_', ' ')}..."):
+                        try:
+                            desired_class_index = int(encoders[TARGET_NAME].transform([next_target])[0]) # type: ignore
+                            
+                            # Panggil fungsi get_dice_recommendations tanpa parameter allow_weight_change
+                            dice_result = get_dice_recommendations(
+                                x_train_encoded,
+                                model,
+                                encoders,
+                                input_df_processed,
+                                desired_class_index,
+                                ALL_FEATURES
+                            )
+                            
+                            if dice_result and dice_result.cf_examples_list and dice_result.cf_examples_list[0].final_cfs_df is not None:
+                                cf_df = dice_result.cf_examples_list[0].final_cfs_df
+                                cf_df_decoded = decode_dice_dataframe(cf_df, encoders, ALL_FEATURES)
+                                
+                                # Data saat ini
+                                q_df = input_df_processed.copy()
+                                q_df[TARGET_NAME] = predicted_class
+                                q_decoded = decode_dice_dataframe(q_df, encoders, ALL_FEATURES)
+                                
+                                # Tampilkan step description
+                                st.markdown(f"{get_step_description(predicted_class, next_target, current_step, total_steps)}")
+                                
+                                # Tampilkan perbandingan
+                                st.markdown("Data Anda Saat Ini")
+                                st.dataframe(q_decoded, use_container_width=True)
+                                
+                                st.markdown("---")
+                                st.markdown("Rekomendasi Perubahan")
+                                st.markdown(f"**Target: {next_target.replace('_', ' ')}**")
+                                
+                                st.dataframe(cf_df_decoded, use_container_width=True)
+
+                                # Save DiCE recommendation to Supabase
+                                try:
+                                    id_prediksi = st.session_state.get('id_prediksi')
+                                    if id_prediksi is not None:
+                                        ok_r, resp_r = insert_rekomendasi_to_supabase(
+                                            id_prediksi=id_prediksi,
+                                            target_prediksi=next_target, # type: ignore
+                                            perubahan_prediksi=cf_df_decoded.to_dict('records')
+                                        )
+                                        if ok_r:
+                                            pass # Berhasil (silent)
+                                        else:
+                                            st.warning(f'Gagal menyimpan rekomendasi: {resp_r}')
+                                except Exception as e:
+                                    st.warning(f'Gagal menyimpan rekomendasi ke Supabase: {e}')
+                                
+                            else:
+                                st.warning("""
+                                Tidak dapat menemukan rekomendasi perubahan yang sesuai saat ini.
+                                """)
+                        
+                        except ValueError:
+                            st.error(f"Kelas target '{next_target}' tidak ditemukan dalam model.")
+                            st.info(f"Kelas yang tersedia: {', '.join(encoders[TARGET_NAME].classes_)}") # type: ignore
+                        
+                        except Exception as e:
+                            st.error(f"Gagal menghasilkan rekomendasi: {e}")
+                            # Traceback telah dihapus
         
         else:
             st.error("Gagal memproses input data. Silakan periksa kembali data yang Anda masukkan.")

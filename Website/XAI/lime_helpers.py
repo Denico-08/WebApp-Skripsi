@@ -117,7 +117,7 @@ def predict_proba_catboost_for_lime(data, model_obj, all_features_list):
         raise
 
 def generate_lime_explanation_text(lime_exp, predicted_class_index, predicted_class_name, user_input_raw):
-
+    
     FEATURE_TRANSLATIONS = {
         'Age': 'Umur Anda',
         'Gender': 'Jenis kelamin Anda',
