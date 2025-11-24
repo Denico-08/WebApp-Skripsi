@@ -4,6 +4,8 @@ import numpy as np
 import os
 from matplotlib import pyplot as plt
 import seaborn as sns
+import joblib
+from imblearn.over_sampling import SMOTE
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc
 from sklearn.preprocessing import StandardScaler, label_binarize
 
@@ -129,13 +131,29 @@ def _show_model_segment():
     st.write("Menggunakan model CatBoost yang ada di `Website/Model_Website`.")
 
     model, encoders, ALL_FEATURES, CLASS_NAMES, x_train_encoded = load_all_assets()
-    if any(a is None for a in [model, encoders, ALL_FEATURES]):
+    if any(a is None for a in [model, encoders, ALL_FEATURES, x_train_encoded]):
         st.error("Gagal memuat aset model. Periksa file model dan asset terkait.")
         return
 
+    # --- Terapkan SMOTE pada data training ---
+    x_train_smote, y_train_smote = None, None
+    try:
+        y_train_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Model_Website', 'Y_Processed.pkl')
+        if not os.path.exists(y_train_path):
+            st.warning("File y_train (Y_Processed.pkl) tidak ditemukan. SMOTE tidak akan diterapkan.")
+        else:
+            y_train_processed = joblib.load(y_train_path)
+            
+            st.info("Menerapkan SMOTE pada data training untuk evaluasi...")
+            smote = SMOTE(random_state=42)
+            x_train_smote, y_train_smote = smote.fit_resample(x_train_encoded, y_train_processed)
+            st.success("SMOTE berhasil diterapkan pada data training.")
+    except Exception as e:
+        st.error(f"Gagal menerapkan SMOTE: {e}")
+    # --- Akhir dari blok SMOTE ---
+
     base_path = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(base_path, 'Model_Website', 'X dan Y')
-    # Preprocess dataset to model features
     try:
         X_val = pd.read_csv(os.path.join(data_path, 'X_val.csv'))
         X_test = pd.read_csv(os.path.join(data_path, 'X_test.csv'))
@@ -153,13 +171,24 @@ def _show_model_segment():
         st.error(f"Error saat memuat dataset: {e}")
         return
 
+    # --- Evaluasi pada data training (setelah SMOTE) ---
+    if x_train_smote is not None and y_train_smote is not None:
+        st.subheader("Evaluasi pada Training Data (setelah SMOTE)")
+        try:
+            # y_train_smote adalah array numerik, perlu diubah kembali ke label string dalam DataFrame
+            y_train_smote_labels = encoders[TARGET_NAME].inverse_transform(y_train_smote)
+            y_train_smote_df = pd.DataFrame(y_train_smote_labels, columns=[TARGET_NAME])
+            _evaluate_and_display(model, encoders[TARGET_NAME], ALL_FEATURES, x_train_smote, y_train_smote_df, label_prefix="Training (SMOTE)")
+        except Exception as e:
+            st.error(f"Gagal melakukan evaluasi pada data training yang di-SMOTE: {e}")
+
     st.subheader("Evaluasi pada Validation Data")
     _evaluate_and_display(model, encoders[TARGET_NAME], ALL_FEATURES, X_val, y_val, label_prefix="Validation")# type: ignore
 
     st.subheader("Evaluasi pada Test Data")
     _evaluate_and_display(model, encoders[TARGET_NAME], ALL_FEATURES, X_test, y_test, label_prefix="Test")# type: ignore
 
-    # Show model parameters
+    # Tampilkan parameter model
     st.subheader("Parameter Model CatBoost")
     try:
         params = model.get_params()# type: ignore
@@ -168,41 +197,27 @@ def _show_model_segment():
             params = model.get_all_params()# type: ignore
         except Exception:
             params = str(model)
-
     st.write(params)
 
-    # --- CatBoost Learning Curve: Training vs Validation ---
+    # --- Kurva Pembelajaran CatBoost ---
     st.subheader("Kurva Pembelajaran (Learning Curve)")
     try:
-        evals_result = None
-        try:
-            evals_result = model.get_evals_result()# type: ignore
-        except Exception:
-            evals_result = None
+        evals_result = model.get_evals_result() if hasattr(model, 'get_evals_result') else None# type: ignore
 
         if evals_result and isinstance(evals_result, dict) and 'learn' in evals_result and evals_result['learn']:
-            # determine metric name (e.g., 'Accuracy')
             metric_name = next(iter(evals_result['learn'].keys()))
             train_history = list(evals_result['learn'].get(metric_name, []))
             val_history = list(evals_result.get('validation', {}).get(metric_name, []))
 
             if not val_history:
-                st.warning('Data histori validasi tidak ditemukan di model. Pastikan model dilatih dengan `eval_set` dan menyimpan histori.')
+                st.warning('Data histori validasi tidak ditemukan di model.')
             else:
-                # ensure same length
                 common_len = min(len(train_history), len(val_history))
-                if common_len == 0:
-                    st.warning('Histori training/validation kosong setelah pemotongan. Tidak dapat menampilkan learning curve.')
-                else:
+                if common_len > 0:
                     it = np.arange(1, common_len + 1)
                     tr = np.array(train_history[:common_len], dtype=float)
                     va = np.array(val_history[:common_len], dtype=float)
-
-                    # best iteration (may be None)
-                    try:
-                        best_iter = model.get_best_iteration()# type: ignore
-                    except Exception:
-                        best_iter = None
+                    best_iter = model.get_best_iteration() if hasattr(model, 'get_best_iteration') else None# type: ignore
 
                     fig, ax = plt.subplots(figsize=(10, 6))
                     ax.plot(it, tr, label=f'Training {metric_name}', color='green', lw=2)
@@ -215,23 +230,17 @@ def _show_model_segment():
                     ax.set_title(f'Learning Curve: Training vs Validation {metric_name}')
                     ax.legend()
                     ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-
-                    # adjust y-limits to focus on relevant range
                     min_y = min(float(np.min(tr)), float(np.min(va))) - 0.05
                     ax.set_ylim(bottom=max(0.0, min_y), top=1.01)
-
                     st.pyplot(fig)
 
-                    # show metrics at best iteration when available
                     if best_iter is not None and 0 <= best_iter < common_len:
                         st.subheader('Skor Terbaik')
                         col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric('Akurasi Training Terbaik', f'{tr[best_iter]:.4f}')
-                        with col2:
-                            st.metric('Akurasi Validasi Terbaik', f'{va[best_iter]:.4f}')
+                        col1.metric('Akurasi Training Terbaik', f'{tr[best_iter]:.4f}')
+                        col2.metric('Akurasi Validasi Terbaik', f'{va[best_iter]:.4f}')
         else:
-            st.info('Tidak ada histori training/validation pada model untuk menampilkan learning curve CatBoost.')
+            st.info('Tidak ada histori training/validation pada model untuk menampilkan learning curve.')
     except Exception as e:
         st.error(f'Gagal membuat learning curve CatBoost: {e}')
             

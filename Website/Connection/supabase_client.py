@@ -28,7 +28,6 @@ def insert_input_to_supabase(user_input_raw: dict, user_id: Optional[Any] = None
         return False, "Supabase client not configured (SUPABASE_URL/KEY missing or library not installed)"
 
     try:
-        # Determine ID_User: prefer provided user_id, else try environment
         id_user_value = user_id if user_id is not None else os.environ.get('SUPABASE_DEFAULT_USER')
 
         payload = {
@@ -72,7 +71,6 @@ def insert_input_to_supabase(user_input_raw: dict, user_id: Optional[Any] = None
 
 
 def insert_faktor_dominan(id_prediksi: int, top_features: Any) -> Tuple[bool, Any]:
-    """Insert top features (LIME) into table `Faktor_Dominan` with JSON column `Top_Feature` and `ID_Prediksi`."""
     client = get_supabase_client()
     if client is None:
         return False, "Supabase client not configured"
@@ -114,7 +112,8 @@ def insert_rekomendasi_to_supabase(id_prediksi: int, target_prediksi: str, perub
             'ID_Prediksi': id_prediksi,
             'Target_Prediksi': target_prediksi,
             'Jumlah_Perubahan': jumlah,
-            'Perubahan_Prediksi': perubahan_prediksi,
+            'Perubahan_Minimal': perubahan_prediksi,
+            'ID_Prediksi': id_prediksi,
         }
 
         resp = client.table('Rekomendasi').insert(payload).execute()

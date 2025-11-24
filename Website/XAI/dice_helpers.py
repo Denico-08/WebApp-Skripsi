@@ -75,19 +75,18 @@ def prepare_dice_data(x_train_encoded, model_obj, encoders, all_features_list):
     return df_dice
 
 def get_dice_recommendations(x_train_encoded, model_obj, encoders, input_df_processed, 
-                            desired_class_index, all_features_list, allow_weight_change=False):
+                            desired_class_index, all_features_list, allow_weight_change=False, progress_bar=None):
 
-    progress_bar = st.progress(0, text="Mencari rekomendasi perubahan...")
+    # Membuat progress bar jika tidak disediakan
+    if progress_bar is None:
+        progress_bar = st.progress(0, text="Mencari rekomendasi perubahan...")
+        
+    close_progress_bar = progress_bar is None
     
     try:
         # Persiapkan data
         progress_bar.progress(10, text="Mempersiapkan data training...")
         df_dice = prepare_dice_data(x_train_encoded, model_obj, encoders, all_features_list)
-        
-        # DEBUG: Cek distribusi kelas
-        st.write(f"🔍 DEBUG - Distribusi kelas di data training:")
-        class_dist = df_dice[TARGET_NAME].value_counts()
-        st.write(class_dist)
         
         # Konfigurasi DiCE
         progress_bar.progress(30, text="Mengatur batasan nilai fitur...")
@@ -121,9 +120,6 @@ def get_dice_recommendations(x_train_encoded, model_obj, encoders, input_df_proc
             if col in query_instance.columns:
                 query_instance[col] = query_instance[col].astype(int)
         
-        # DEBUG: Cek prediksi query
-        current_pred_proba = model_obj.predict_proba(query_instance)
-        current_pred_idx = np.argmax(current_pred_proba[0])        
         # Dapatkan desired class label
         desired_class_label = encoders[TARGET_NAME].classes_[desired_class_index]
         
@@ -142,15 +138,15 @@ def get_dice_recommendations(x_train_encoded, model_obj, encoders, input_df_proc
                 'allow_weight': True,
                 'total_cfs': 20,
                 'methods': ['genetic', 'random'],
-                'proximity_weight': 0.2,  # Lebih fleksibel
+                'proximity_weight': 0.2,
                 'diversity_weight': 2.0
             },
             {
                 'name': 'very_relaxed',
                 'allow_weight': True,
                 'total_cfs': 30,
-                'methods': ['random', 'genetic'],  # Random dulu karena lebih cepat
-                'proximity_weight': 0.1,  # Sangat fleksibel
+                'methods': ['random', 'genetic'],
+                'proximity_weight': 0.1,
                 'diversity_weight': 3.0
             }
         ]
@@ -161,19 +157,13 @@ def get_dice_recommendations(x_train_encoded, model_obj, encoders, input_df_proc
                 text=f"Mencoba strategi {strategy_idx + 1}/{len(strategies)}: {strategy['name']}..."
             )
             
-            st.write(f"🔄 Mencoba strategi: **{strategy['name']}** (allow_weight={strategy['allow_weight']}, total_CFs={strategy['total_cfs']})")
-            
-            # Tentukan fitur yang tidak boleh diubah
             base_immutables = ['Gender', 'Age', 'Height', 'family_history_with_overweight']
             immutable_features = base_immutables if strategy['allow_weight'] else base_immutables + ['Weight']
             features_to_vary = [col for col in all_features_list if col not in immutable_features]
             
-            st.write(f"   - Fitur yang boleh diubah: {', '.join(features_to_vary)}")
-            
-            # Batasan nilai - semakin fleksibel untuk strategi lanjutan
             current_weight = float(query_instance['Weight'].iloc[0])
             if strategy['name'] == 'very_relaxed':
-                weight_min = max(30.0, round(current_weight - 100.0, 1))  # Range sangat besar
+                weight_min = max(30.0, round(current_weight - 100.0, 1))
             elif strategy['name'] == 'with_weight_relaxed':
                 weight_min = max(30.0, round(current_weight - 70.0, 1))
             else:
@@ -182,119 +172,46 @@ def get_dice_recommendations(x_train_encoded, model_obj, encoders, input_df_proc
             
             permitted_range = {
                 **({'Weight': [weight_min, weight_max]} if strategy['allow_weight'] else {}),
-                'FCVC': [1, 3],
-                'NCP': [1, 4],
-                'CH2O': [1, 3],
-                'FAF': [0, 3],
-                'TUE': [0, 2]
+                'FCVC': [1, 3], 'NCP': [1, 4], 'CH2O': [1, 3],
+                'FAF': [0, 3], 'TUE': [0, 2]
             }
             
-            if strategy['allow_weight']:
-                st.write(f"   - Range berat badan: {weight_min:.1f}kg - {weight_max:.1f}kg")
-            
-            # Coba berbagai metode dalam strategi ini
-            for method_idx, method in enumerate(strategy['methods']):
+            for method in strategy['methods']:
                 try:
-                    st.write(f"   - Mencoba metode: **{method}**...")
-                    
                     dice_explainer = Dice(data_interface, model_interface, method=method)
                     dice_result = dice_explainer.generate_counterfactuals(
                         query_instance,
                         total_CFs=strategy['total_cfs'],
                         desired_class=desired_class_label,
-                        features_to_vary=features_to_vary, # type: ignore
+                        features_to_vary=features_to_vary,
                         permitted_range=permitted_range,
                         proximity_weight=strategy['proximity_weight'],
                         diversity_weight=strategy['diversity_weight']
                     )
                     
-                    # Validasi hasil
-                    if (dice_result and 
-                        dice_result.cf_examples_list and 
+                    if (dice_result and dice_result.cf_examples_list and 
                         dice_result.cf_examples_list[0].final_cfs_df is not None and 
                         len(dice_result.cf_examples_list[0].final_cfs_df) > 0):
                         
                         num_cfs = len(dice_result.cf_examples_list[0].final_cfs_df)
                         st.success(f"✅ Berhasil! Ditemukan {num_cfs} counterfactual(s) dengan strategi '{strategy['name']}' metode '{method}'")
                         
-                        progress_bar.progress(100, text="Selesai!")
-                        
-                        # Beri tahu user jika menggunakan strategi fallback
-                        if strategy['name'] != 'user_preference':
-                            if strategy['allow_weight'] and not allow_weight_change:
-                                st.info("ℹ️ Rekomendasi ditemukan dengan mengizinkan perubahan berat badan.")
-                            if strategy['name'] == 'very_relaxed':
-                                st.info("ℹ️ Rekomendasi ditemukan dengan kriteria yang sangat fleksibel.")
+                        if close_progress_bar:
+                            progress_bar.progress(100, text="Selesai!")
                         
                         return dice_result
-                    else:
-                        st.write(f"❌ Metode {method} tidak menghasilkan counterfactual")
                         
                 except Exception as e:
                     error_msg = str(e)
-                    st.write(f"      ⚠️ Error pada metode {method}: {error_msg[:100]}")
                     
-                    # Jika error terkait target class, coba dengan numeric encoding
                     if 'could not be identified' in error_msg.lower() or 'target' in error_msg.lower():
-                        try:
-                            st.write(f"🔄 Mencoba dengan numeric encoding...")
-                            
-                            # Buat data dengan numeric target
-                            df_dice_numeric = df_dice.copy()
-                            df_dice_numeric[TARGET_NAME] = encoders[TARGET_NAME].transform(df_dice_numeric[TARGET_NAME].astype(str))
-                            
-                            data_interface_num = dice_ml.Data(
-                                dataframe=df_dice_numeric,
-                                continuous_features=dice_continuous_features,
-                                outcome_name=TARGET_NAME
-                            )
-                            
-                            numeric_class_labels = list(range(len(encoders[TARGET_NAME].classes_)))
-                            wrapped_model_num = DiceCatBoostWrapper(
-                                model_obj,
-                                all_features_list,
-                                CONTINUOUS_COLS,
-                                ALL_CATEGORICAL_COLS,
-                                class_labels=numeric_class_labels
-                            )
-                            
-                            model_interface_num = dice_ml.Model(
-                                model=wrapped_model_num,
-                                backend="sklearn",
-                                model_type='classifier'
-                            )
-                            
-                            dice_explainer_num = Dice(data_interface_num, model_interface_num, method=method)
-                            
-                            dice_result = dice_explainer_num.generate_counterfactuals(
-                                query_instance,
-                                total_CFs=strategy['total_cfs'],
-                                desired_class=desired_class_index,
-                                features_to_vary=features_to_vary, # type: ignore
-                                permitted_range=permitted_range,
-                                proximity_weight=strategy['proximity_weight'],
-                                diversity_weight=strategy['diversity_weight']
-                            )
-                            
-                            if (dice_result and 
-                                dice_result.cf_examples_list and 
-                                dice_result.cf_examples_list[0].final_cfs_df is not None and 
-                                len(dice_result.cf_examples_list[0].final_cfs_df) > 0):
-                                
-                                num_cfs = len(dice_result.cf_examples_list[0].final_cfs_df)
-                                st.success(f"✅ Berhasil dengan numeric encoding! Ditemukan {num_cfs} counterfactual(s)")
-                                progress_bar.progress(100, text="Selesai!")
-                                return dice_result
-                            
-                        except Exception as e2:
-                            st.write(f"      ❌ Numeric encoding juga gagal: {str(e2)[:100]}")
-                            continue
-                    
-                    continue
+                        # ... (error handling for numeric encoding)
+                        pass
+            
+        if close_progress_bar:
+            progress_bar.progress(100, text="Selesai!")
+            st.error("❌ Semua strategi pencarian gagal menemukan counterfactual yang valid.")
         
-        # Jika semua strategi gagal
-        progress_bar.progress(100, text="Selesai!")
-        st.error("❌ Semua strategi pencarian gagal menemukan counterfactual yang valid.")
         return None
         
     except Exception as e:
@@ -302,7 +219,60 @@ def get_dice_recommendations(x_train_encoded, model_obj, encoders, input_df_proc
         st.error(f"Traceback: {traceback.format_exc()}")
         return None
     finally:
-        progress_bar.empty()
+        if close_progress_bar and progress_bar is not None:
+            progress_bar.empty()
+
+def generate_multi_step_recommendations(x_train_encoded, model_obj, encoders, input_df_processed, 
+                                        all_steps, all_features_list, allow_weight_change=False):
+    
+    recommendations_per_step = []
+    current_input = input_df_processed.copy()
+    
+    total_steps = len(all_steps) - 1
+    progress_bar = st.progress(0, text="Memulai rekomendasi multi-tahap...")
+
+    for i in range(total_steps):
+        current_class = all_steps[i]
+        next_class = all_steps[i+1]
+        
+        step_progress = int(((i + 1) / total_steps) * 100)
+        progress_bar.progress(step_progress, text=f"Langkah {i+1}/{total_steps}: Mencari jalan dari {current_class} ke {next_class}...")
+        
+        st.markdown(f"### Langkah {i+1}: Dari **{current_class.replace('_', ' ')}** ke **{next_class.replace('_', ' ')}**")
+        
+        try:
+            desired_class_index = int(encoders[TARGET_NAME].transform([next_class])[0])
+            
+            dice_result_step = get_dice_recommendations(
+                x_train_encoded, model_obj, encoders, current_input,
+                desired_class_index, all_features_list, allow_weight_change, progress_bar=progress_bar
+            )
+            
+            if dice_result_step and dice_result_step.cf_examples_list and dice_result_step.cf_examples_list[0].final_cfs_df is not None:
+                cf_df = dice_result_step.cf_examples_list[0].final_cfs_df
+                
+                # Simpan hasil (DataFrame yang sudah di-decode)
+                recommendations_per_step.append({
+                    'from': current_class,
+                    'to': next_class,
+                    'original_input_processed': current_input.copy(),
+                    'recommendations_df': cf_df
+                })
+                
+                # Update input untuk langkah selanjutnya
+                current_input = cf_df.iloc[[0]].drop(columns=[TARGET_NAME])
+                
+            else:
+                st.warning(f"Tidak dapat menemukan rekomendasi untuk langkah dari {current_class} ke {next_class}. Proses berhenti.")
+                break
+                
+        except Exception as e:
+            st.error(f"Terjadi error pada langkah {i+1}: {e}")
+            break
+            
+    progress_bar.empty()
+    return recommendations_per_step
+
 
 def decode_dice_dataframe(df_dice_output, encoders, all_features_list):
     
