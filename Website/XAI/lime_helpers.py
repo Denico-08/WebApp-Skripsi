@@ -12,7 +12,7 @@ def initialize_lime_explainer(_X_train_encoded, all_features_list, class_names_l
     training_values = _X_train_encoded[all_features_list].values
     
     categorical_feature_indices = [
-        _X_train_encoded.columns.get_loc(col) 
+        _X_train_encoded.columns.get_loc(col)
         for col in ALL_CATEGORICAL_COLS 
         if col in _X_train_encoded.columns
     ]
@@ -78,7 +78,6 @@ def get_next_target_class(current_class, class_names):
         return current_class, True, [current_class]
 
 def get_step_description(current_class, next_class, step_number, total_steps):
-
     return f"**Step {step_number}/{total_steps}**: {current_class.replace('_', ' ')} → {next_class.replace('_', ' ')}"
 
 def predict_proba_catboost_for_lime(data, model_obj, all_features_list):
@@ -117,6 +116,10 @@ def predict_proba_catboost_for_lime(data, model_obj, all_features_list):
         raise
 
 def generate_lime_explanation_text(lime_exp, predicted_class_index, predicted_class_name, user_input_raw):
+    """
+    Menerjemahkan hasil LIME menjadi kalimat natural bahasa Indonesia
+    berdasarkan nilai input asli user.
+    """
     
     FEATURE_TRANSLATIONS = {
         'Age': 'Umur Anda',
@@ -125,62 +128,93 @@ def generate_lime_explanation_text(lime_exp, predicted_class_index, predicted_cl
         'Weight': 'Berat badan Anda',
         'family_history_with_overweight': 'Riwayat keluarga obesitas',
         'FAVC': 'Anda mengonsumsi makanan tinggi kalori',
-        'NCP': 'Anda makan utama',
-        'CAEC': 'Anda mengonsumsi cemilan',
-        'SMOKE': 'Anda merokok',
-        'CH2O': 'Anda meminum air',
-        'SCC': 'Anda memantau kalori harian',
-        'FAF': 'Anda beraktivitas fisik',
-        'TUE': 'Anda menggunakan gawai',
-        'CALC': 'Anda mengonsumsi alkohol',
-        'MTRANS': 'Transportasi utama Anda',
-        'FCVC': 'Anda mengonsumsi sayuran',
+        'NCP': 'Jadwal makan utama',
+        'CAEC': 'Kebiasaan ngemil',
+        'SMOKE': 'Status merokok',
+        'CH2O': 'Konsumsi air putih',
+        'SCC': 'Pemantauan kalori',
+        'FAF': 'Aktivitas fisik',
+        'TUE': 'Penggunaan gawai',
+        'CALC': 'Konsumsi alkohol',
+        'MTRANS': 'Transportasi utama',
+        'FCVC': 'Konsumsi sayuran',
     }
 
     DECODERS = {
-        'CH2O': {'1': '<1L', '2': '1-2L', '3': '>2L'},
-        'FCVC': {'1': 'Tidak Pernah', '2': 'Kadang-kadang', '3': 'Selalu'},
-        'NCP': {'1': '1x sehari', '2': '2x sehari', '3': '3x sehari', '4': '4x sehari'},
-        'FAF': {'0': '< 15 menit', '1': '15 - 30 menit', '2': '30 - 60 menit', '3': '60+ menit'},
-        'TUE': {'0': '< 1 jam', '1': '1 - 2 jam', '2': '>2 jam'},
-        'CAEC': {'no': 'Tidak Pernah', 'Sometimes': '1-2x/minggu', 'Frequently': '3-5x/minggu', 'Always': 'Setiap Hari'},
+        'CH2O': {'1': 'Kurang (<1L)', '2': 'Cukup (1-2L)', '3': 'Banyak (>2L)'},
+        'FCVC': {'1': 'Jarang', '2': 'Kadang-kadang', '3': 'Sering/Selalu'},
+        'NCP': {'1': '1x sehari', '2': '2x sehari', '3': '3x sehari', '4': 'Lebih dari 3x'},
+        'FAF': {'0': 'Tidak ada', '1': 'Ringan (1-2 hari)', '2': 'Sedang (3-4 hari)', '3': 'Rutin/Tinggi'},
+        'TUE': {'0': 'Rendah (0-2 jam)', '1': 'Sedang (3-5 jam)', '2': 'Tinggi (>5 jam)'},
+        'CAEC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'},
+        'CALC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'}
     }
 
     def format_sentences_from_features(features, known_keys):
         points = []
-        for feature_string, _ in features:
+        # Urutkan key berdasarkan panjang string (descending) untuk menghindari salah match
+        # Contoh: Agar 'family_history_with_overweight' terdeteksi sebelum 'Weight'
+        sorted_keys = sorted(known_keys, key=len, reverse=True)
+
+        for feature_string, weight in features:
             sentence = None
             try:
                 feature_name = None
-                for key in known_keys:
+                for key in sorted_keys:
                     if key in feature_string:
                         feature_name = key
                         break
+                
                 if not feature_name: continue
 
+                # Ambil nilai asli dari input user
                 raw_value = user_input_raw.get(feature_name)
                 if raw_value is None: continue
 
+                # LOGIKA PENYUSUNAN KALIMAT
                 if feature_name == 'family_history_with_overweight':
-                    sentence = "Tidak ada riwayat keluarga yang obesitas" if str(raw_value).lower() == 'no' else "Adanya riwayat keluarga yang obesitas"
+                    val_str = str(raw_value).lower()
+                    sentence = "Tidak memiliki riwayat obesitas di keluarga" if val_str == 'no' else "Memiliki riwayat obesitas di keluarga"
+                
                 elif feature_name == 'Weight':
-                    sentence = f"Berat badan Anda **{int(float(raw_value))} kg**"
+                    sentence = f"Berat badan saat ini **{int(float(raw_value))} kg**"
+                
                 elif feature_name == 'Height':
-                    sentence = f"Tinggi badan Anda **{int(float(raw_value) * 100)} cm**"
+                    # Asumsi input raw height dalam meter (karena pre-processing handle convert) 
+                    # TAPI user_input_raw biasanya menyimpan apa yg diinput di form (cm atau m).
+                    # Kita cek range nilainya.
+                    h_val = float(raw_value)
+                    if h_val < 3.0: h_val *= 100 # Convert m to cm for display if needed
+                    sentence = f"Tinggi badan **{int(h_val)} cm**"
+                
                 elif feature_name in DECODERS:
-                    translated_feature = FEATURE_TRANSLATIONS.get(feature_name, feature_name)
-                    decoded_value = DECODERS[feature_name].get(str(raw_value), str(raw_value))
-                    sentence = f"{translated_feature} **{decoded_value}**"
+                    label = FEATURE_TRANSLATIONS.get(feature_name, feature_name)
+                    decoded_val = DECODERS[feature_name].get(str(raw_value), str(raw_value))
+                    sentence = f"{label} tergolong **{decoded_val}**"
+                
                 elif feature_name in ['FAVC', 'SMOKE', 'SCC']:
-                    sentence = f"Tidak {FEATURE_TRANSLATIONS.get(feature_name, feature_name).lower()}" if str(raw_value).lower() == 'no' else f"Rutin {FEATURE_TRANSLATIONS.get(feature_name, feature_name)}" #type:ignore
+                    label = FEATURE_TRANSLATIONS.get(feature_name, feature_name)
+                    is_yes = str(raw_value).lower() == 'yes'
+                    
+                    if feature_name == 'SMOKE':
+                        sentence = "Anda **Merokok**" if is_yes else "Anda **Tidak Merokok**"
+                    elif feature_name == 'SCC':
+                        sentence = "Anda **Memantau kalori**" if is_yes else "Anda **Tidak memantau kalori**"
+                    elif feature_name == 'FAVC':
+                        sentence = "Sering konsumsi makanan tinggi kalori" if is_yes else "Jarang konsumsi makanan tinggi kalori"
+                
                 else:
-                    translated_feature = FEATURE_TRANSLATIONS.get(feature_name, feature_name)
-                    sentence = f"{translated_feature}: **{str(raw_value).replace('_', ' ')}**"
+                    # Fallback
+                    label = FEATURE_TRANSLATIONS.get(feature_name, feature_name)
+                    sentence = f"{label}: **{str(raw_value).replace('_', ' ')}**"
+
             except Exception:
                 continue
             
             if sentence:
+                # Tambahkan icon +/- visual
                 points.append(f"• {sentence}")
+        
         return points
 
     try:
@@ -188,6 +222,7 @@ def generate_lime_explanation_text(lime_exp, predicted_class_index, predicted_cl
     except IndexError:
         return "Gagal menghasilkan penjelasan."
 
+    # Pisahkan fitur mendukung (+) dan bertentangan (-)
     supporting_features = sorted([f for f in explanation_list if f[1] > 0], key=lambda x: x[1], reverse=True)
     contradicting_features = sorted([f for f in explanation_list if f[1] < 0], key=lambda x: x[1])
 
@@ -195,21 +230,21 @@ def generate_lime_explanation_text(lime_exp, predicted_class_index, predicted_cl
     final_text_parts = []
     known_feature_keys = list(FEATURE_TRANSLATIONS.keys())
 
-    # Bagian Faktor Pendukung
+    # Bagian 1: Faktor Pendukung (Top 3)
     if supporting_features:
-        intro_support = f"Faktor-faktor utama yang **mendukung** prediksi **{predicted_class_formatted}** adalah:"
-        supporting_sentences = format_sentences_from_features(supporting_features[:3], known_feature_keys)
+        intro_support = f"##### Faktor Pendukung\nFaktor berikut **meningkatkan** kecenderungan Anda masuk kategori **{predicted_class_formatted}**:"
+        supporting_sentences = format_sentences_from_features(supporting_features[:5], known_feature_keys)
         if supporting_sentences:
-            final_text_parts.append(intro_support + "\n\n" + "\n\n".join(supporting_sentences))
+            final_text_parts.append(intro_support + "\n" + "\n".join(supporting_sentences))
 
-    # Bagian Faktor Bertentangan
+    # Bagian 2: Faktor Bertentangan (Top 2)
     if contradicting_features:
-        intro_contradict = f"Di sisi lain, faktor-faktor berikut sebenarnya **bertentangan** dengan prediksi ini (namun pengaruhnya lebih kecil):"
-        contradicting_sentences = format_sentences_from_features(contradicting_features[:2], known_feature_keys)
+        intro_contradict = f"##### Faktor Pegenndali\nNamun, faktor berikut membantu **menahan** kenaikan tingkat obesitas Anda (menjaga agar tidak lebih parah):"
+        contradicting_sentences = format_sentences_from_features(contradicting_features[:3], known_feature_keys)
         if contradicting_sentences:
-            final_text_parts.append(intro_contradict + "\n\n" + "\n\n".join(contradicting_sentences))
+            final_text_parts.append(intro_contradict + "\n" + "\n".join(contradicting_sentences))
 
     if not final_text_parts:
-        return "Tidak dapat mengidentifikasi faktor-faktor yang signifikan untuk prediksi ini."
+        return "Data tidak cukup signifikan untuk menarik kesimpulan spesifik."
 
     return "\n\n---\n\n".join(final_text_parts)

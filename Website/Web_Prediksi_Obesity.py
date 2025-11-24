@@ -13,8 +13,16 @@ from Connection.supabase_client import (
     insert_prediction_to_supabase,
     insert_rekomendasi_to_supabase,
 )
-from XAI.dice_helpers import decode_dice_dataframe, get_dice_recommendations
-from XAI.lime_helpers import initialize_lime_explainer, predict_proba_catboost_for_lime, get_step_description, get_next_target_class
+# Import helper function untuk DiCE
+from XAI.dice_helpers import decode_dice_dataframe, get_dice_recommendations, summarize_dice_changes
+# Import helper function untuk LIME
+from XAI.lime_helpers import (
+    initialize_lime_explainer, 
+    predict_proba_catboost_for_lime, 
+    get_step_description, 
+    get_next_target_class,
+    generate_lime_explanation_text
+)
 from History_User import history_page
 from config import (
     TARGET_NAME, CONTINUOUS_COLS, ORDINAL_COLS,
@@ -400,23 +408,40 @@ def run_prediction_app():
                         lime_exp = lime_explainer.explain_instance(
                             input_df_processed[ALL_FEATURES].values[0],
                             lambda x: predict_proba_catboost_for_lime(x, model, ALL_FEATURES),
-                            num_features=5,
+                            num_features=7,
                             top_labels=1
                         )
                         
+                        # Tampilkan Grafik LIME
                         fig = lime_exp.as_pyplot_figure(label=predicted_class_index)
                         st.pyplot(fig, use_container_width=True)
+                        
+                        # ===========================================================
+                        # BAGIAN KESIMPULAN LIME
+                        # ===========================================================
+                        st.markdown("### Kesimpulan Analisis")
+                        lime_text = generate_lime_explanation_text(
+                            lime_exp, 
+                            predicted_class_index, 
+                            predicted_class, 
+                            st.session_state.user_input_raw
+                        )
+                        st.info(lime_text)
+                        # ===========================================================
 
                         # Save top 5 LIME features to Supabase under Faktor_Dominan
                         try:
+                            top_list = lime_exp.as_list(label=predicted_class_index)
+                            top5 = top_list[:5]
+                            top_features = []
+                            for feat, weight in top5:
+                                top_features.append({'feature': str(feat), 'weight': float(weight)})
+
                             id_prediksi = st.session_state.get('id_prediksi')
                             if id_prediksi is not None:
-                                # Extract top features from LIME explanation
-                                top_features_lime = lime_exp.as_list(label=predicted_class_index)[:5]
-                                top_features_json = {feature: value for feature, value in top_features_lime}
                                 ok_f, resp_f = insert_faktor_dominan(
                                     id_prediksi=id_prediksi,
-                                    top_features=top_features_json,
+                                    top_features={item['feature']: item['weight'] for item in top_features}
                                 )
                         except Exception as e:
                             st.warning(f'Gagal mengekstrak atau menyimpan fitur LIME: {e}')
@@ -447,7 +472,7 @@ def run_prediction_app():
                         try:
                             desired_class_index = int(encoders[TARGET_NAME].transform([next_target])[0]) # type: ignore
                             
-                            # Panggil fungsi get_dice_recommendations tanpa parameter allow_weight_change
+                            # Panggil fungsi get_dice_recommendations
                             dice_result = get_dice_recommendations(
                                 x_train_encoded,
                                 model,
@@ -469,12 +494,24 @@ def run_prediction_app():
                                 # Tampilkan step description
                                 st.markdown(f"{get_step_description(predicted_class, next_target, current_step, total_steps)}")
                                 
+                                # ===========================================================
+                                # BAGIAN KESIMPULAN DICE
+                                # ===========================================================
+                                dice_summary = summarize_dice_changes(dice_result, input_df_processed, encoders, ALL_FEATURES)
+                                
+                                if dice_summary:
+                                    st.info("💡 **Ringkasan Saran Perubahan Utama:**")
+                                    for msg in dice_summary:
+                                        st.markdown(f"- {msg}")
+                                    st.markdown("---")
+                                # ===========================================================
+                                
                                 # Tampilkan perbandingan
                                 st.markdown("Data Anda Saat Ini")
                                 st.dataframe(q_decoded, use_container_width=True)
                                 
                                 st.markdown("---")
-                                st.markdown("Rekomendasi Perubahan")
+                                st.markdown("Rekomendasi Perubahan (Opsi yang tersedia)")
                                 st.markdown(f"**Target: {next_target.replace('_', ' ')}**")
                                 
                                 st.dataframe(cf_df_decoded, use_container_width=True)
@@ -506,7 +543,6 @@ def run_prediction_app():
                         
                         except Exception as e:
                             st.error(f"Gagal menghasilkan rekomendasi: {e}")
-                            # Traceback telah dihapus
         
         else:
             st.error("Gagal memproses input data. Silakan periksa kembali data yang Anda masukkan.")

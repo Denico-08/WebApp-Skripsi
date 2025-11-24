@@ -3,6 +3,7 @@ import pandas as pd
 import dice_ml
 from dice_ml import Dice
 import streamlit as st
+from collections import Counter
 from config import ALL_CATEGORICAL_COLS, CONTINUOUS_COLS, ORDINAL_COLS, TARGET_NAME, DECODE_MAPS
 import traceback
 
@@ -313,3 +314,113 @@ def decode_dice_dataframe(df_dice_output, encoders, all_features_list):
             df_decoded[TARGET_NAME] = df_decoded[TARGET_NAME].astype(str)
     
     return df_decoded[all_features_list + [TARGET_NAME]]
+
+def summarize_dice_changes(dice_result, input_df_processed, encoders, all_features_list):
+    """
+    Menganalisis hasil rekomendasi DiCE dan mengembalikan daftar fitur
+    yang paling sering disarankan untuk diubah, beserta NILAI SARAN PALING UMUM
+    yang sudah diterjemahkan ke teks bahasa Indonesia yang mudah dipahami.
+    """
+    try:
+        if not dice_result or not dice_result.cf_examples_list or dice_result.cf_examples_list[0].final_cfs_df is None:
+            return []
+
+        # 1. Decode hasil rekomendasi (Counterfactuals)
+        cf_df = dice_result.cf_examples_list[0].final_cfs_df
+        cf_decoded = decode_dice_dataframe(cf_df, encoders, all_features_list)
+        
+        # 2. Decode data asli user
+        q_df = input_df_processed.copy()
+        if TARGET_NAME not in q_df.columns:
+            q_df[TARGET_NAME] = cf_decoded[TARGET_NAME].iloc[0] # Dummy target
+            
+        q_decoded = decode_dice_dataframe(q_df, encoders, all_features_list)
+        original_data = q_decoded.iloc[0]
+
+        feature_changes = {}
+
+        # 3. Kumpulkan semua perubahan (simpan nilai barunya)
+        for _, row in cf_decoded.iterrows():
+            for col in all_features_list:
+                if col == TARGET_NAME or col in ['Gender', 'Age', 'Height', 'family_history_with_overweight']:
+                    continue
+                
+                val_original = original_data[col]
+                val_new = row[col]
+                
+                # Bandingkan nilai
+                if str(val_original) != str(val_new):
+                    if col not in feature_changes:
+                        feature_changes[col] = []
+                    feature_changes[col].append(val_new)
+
+        # 4. Analisis Statistik (Cari nilai terbanyak/modus untuk setiap fitur)
+        summary_list = []
+        
+        # Urutkan fitur berdasarkan total frekuensi perubahan (terbanyak ke sedikit)
+        sorted_features = sorted(feature_changes.items(), key=lambda x: len(x[1]), reverse=True)
+        
+        # Mapping nama fitur ke bahasa Indonesia
+        readable_names = {
+            'Weight': 'Berat Badan',
+            'FCVC': 'Konsumsi Sayur',
+            'NCP': 'Jadwal Makan Utama',
+            'CH2O': 'Minum Air Putih',
+            'FAF': 'Aktivitas Fisik',
+            'TUE': 'Penggunaan Gawai',
+            'MTRANS': 'Transportasi',
+            'FAVC': 'Konsumsi Makanan Tinggi Kalori',
+            'CAEC': 'Ngemil di Antara Makan',
+            'SMOKE': 'Merokok',
+            'SCC': 'Memantau Kalori',
+            'CALC': 'Konsumsi Alkohol'
+        }
+
+        # Mapping nilai numerik/kode ke deskripsi teks
+        human_readable_map = {
+            'FCVC': {1: 'Jarang (Tidak Pernah)', 2: 'Kadang-kadang', 3: 'Sering (Setiap Makan)'},
+            'NCP': {1: '1x sehari', 2: '2x sehari', 3: '3x sehari', 4: 'Lebih dari 3x sehari'},
+            'CH2O': {1: 'Kurang (< 1 Liter)', 2: 'Cukup (1-2 Liter)', 3: 'Banyak (> 2 Liter)'},
+            'FAF': {0: 'Tidak ada (< 15 mnt)', 1: 'Ringan (15-30 mnt)', 2: 'Sedang (30-60 mnt)', 3: 'Rutin/Tinggi (> 60 mnt)'},
+            'TUE': {0: 'Rendah (0-1 jam)', 1: 'Sedang (1-2 jam)', 2: 'Tinggi (> 2 jam)'},
+            'CAEC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'},
+            'CALC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'},
+            'FAVC': {'no': 'Tidak', 'yes': 'Ya'},
+            'SCC': {'no': 'Tidak', 'yes': 'Ya'},
+            'SMOKE': {'no': 'Tidak', 'yes': 'Ya'}
+        }
+
+        for feature, values in sorted_features[:5]: # Top 5 fitur
+            count_total = len(values)
+            total_recommendations = len(cf_decoded)
+            
+            # Cari nilai yang paling sering disarankan (Modus)
+            value_counts = Counter(values)
+            most_common_val, most_common_count = value_counts.most_common(1)[0]
+            
+            feature_label = readable_names.get(feature, feature)
+            
+            # Terjemahkan nilai jika ada di map
+            translated_val = most_common_val
+            if feature in human_readable_map:
+                # Coba parsing ke int jika memungkinkan (karena key di map bisa int)
+                try:
+                    key_val = int(float(most_common_val))
+                except:
+                    key_val = str(most_common_val)
+                
+                translated_val = human_readable_map[feature].get(key_val, most_common_val)
+            
+            # Tambahan satuan untuk Berat Badan
+            if feature == 'Weight':
+                translated_val = f"{float(most_common_val):.1f} kg"
+
+            # Format pesan: Menampilkan nilai spesifik yang paling banyak disarankan
+            msg = f"**{feature_label}**: Disarankan menjadi **{translated_val}** (muncul di {most_common_count} dari {total_recommendations} opsi)"
+            summary_list.append(msg)
+            
+        return summary_list
+
+    except Exception as e:
+        print(f"Error generating summary: {e}")
+        return []
