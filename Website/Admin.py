@@ -7,8 +7,8 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc
 from sklearn.preprocessing import StandardScaler, label_binarize
 
-from Web_Prediksi_Obesity import load_all_assets
-from Login import require_auth, logout
+from Web_Prediksi_Obesity import Dataset, Model_Prediksi
+from User import User
 from Connection.supabase_client import get_supabase_client
 from config import TARGET_NAME
 
@@ -128,7 +128,23 @@ def _show_model_segment():
     st.header("Segmen Model")
     st.write("Menggunakan model CatBoost yang ada di `Website/Model_Website`.")
 
-    model, encoders, ALL_FEATURES, CLASS_NAMES, x_train_encoded = load_all_assets()
+    model_loader = Model_Prediksi()
+    dataset_loader = Dataset()
+    
+    model_loaded = model_loader.loadmodel()
+    dataset_loaded = dataset_loader.LoadDataset()
+
+    if not model_loaded or not dataset_loaded:
+        st.error("Gagal memuat aset model atau dataset. Periksa file-file terkait.")
+        return
+
+    # Get the data from the instances
+    model = model_loader.model
+    encoders = model_loader.encoders
+    ALL_FEATURES = model_loader.feature_names
+    CLASS_NAMES = model_loader.class_names
+    x_train_encoded = dataset_loader.data_train_encoded
+
     if any(a is None for a in [model, encoders, ALL_FEATURES]):
         st.error("Gagal memuat aset model. Periksa file model dan asset terkait.")
         return
@@ -266,7 +282,7 @@ def _show_user_segment():
 
 
 def admin_page_():
-    require_auth()
+    User.require_auth()
 
     # Ensure only admin can access
     if st.session_state.get('user_role') != 'Admin':
@@ -279,7 +295,7 @@ def admin_page_():
         st.title(f"Admin: {st.session_state.get('user_name')}")
         st.write(f"Email: {st.session_state.get('user')}")
         if st.button('🚪 Logout'):
-            logout()
+            User.logout()
             st.session_state.page = 'login'
             st.rerun()
 

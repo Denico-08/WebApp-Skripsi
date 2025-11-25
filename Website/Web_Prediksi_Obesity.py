@@ -3,230 +3,314 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
-from matplotlib import pyplot as plt
+from dataclasses import dataclass, asdict
 from catboost import CatBoostClassifier
-from lime.lime_tabular import LimeTabularExplainer
-from Login import logout
+
+from User import User
 from Connection.supabase_client import (
     insert_input_to_supabase,
     insert_faktor_dominan,
     insert_prediction_to_supabase,
     insert_rekomendasi_to_supabase,
 )
-# Import helper function untuk DiCE
-from XAI.dice_helpers import decode_dice_dataframe, get_dice_recommendations, summarize_dice_changes
-# Import helper function untuk LIME
-from XAI.lime_helpers import (
-    initialize_lime_explainer, 
-    predict_proba_catboost_for_lime, 
-    get_step_description, 
-    get_next_target_class,
-    generate_lime_explanation_text
-)
-from History_User import history_page
+
 from config import (
     TARGET_NAME, CONTINUOUS_COLS, ORDINAL_COLS,
     GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP, SCC_MAP, SMOKE_MAP,
     CAEC_MAP, CALC_MAP, MTRANS_MAP
 )
 
-# ================================================================================
-# FUNGSI HELPER
-# ================================================================================
+# Import Helper XAI (Langsung Function)
+from XAI.dice_helpers import (
+    decode_dice_dataframe, get_dice_recommendations, 
+    summarize_dice_changes)
+from XAI.lime_helpers import (
+    initialize_lime_explainer, 
+    predict_proba_catboost_for_lime, 
+    generate_lime_explanation_text, get_step_description, get_next_target_class
+)
 
-def get_model_paths():
-    """Mendapatkan path ke file model dan aset lainnya."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    model_dir = os.path.join(base_dir, "Model_Website")
-    
-    return {
-        'model': os.path.join(model_dir, "catboost_model2.cbm"),
-        'target_encoder': os.path.join(model_dir, "Y_Processed.pkl"),
-        'feature_names': os.path.join(model_dir, "X_ClassNames.pkl"),
-        'x_train': os.path.join(model_dir, "X_Train_Processed.pkl"),
-        'class_names': os.path.join(model_dir, "Y_ClassNames.pkl")
-    }
+# ==============================================================================
+# 1. CLASS DATASET
+# ==============================================================================
+class Dataset:
+    def __init__(self):
+        self.data_train_encoded = None
+        self.feature_names = None
+        self.class_names = None
+        
+    def LoadDataset(self):
+        """Memuat data training dan metadata yang dibutuhkan untuk XAI"""
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            model_dir = os.path.join(base_dir, "Model_Website")
+            
+            # Paths
+            path_train = os.path.join(model_dir, "X_train_smote.pkl")
+            path_features = os.path.join(model_dir, "X_ClassNames.pkl")
+            path_classes = os.path.join(model_dir, "Y_ClassNames.pkl")
 
-def preprocess_input_data(input_dict, all_features_list):
-    
-    df = pd.DataFrame([input_dict])
-    
-    if df.empty:
-        return None
-    
-    try:
-        # Proses fitur kontinyu
-        for col in CONTINUOUS_COLS:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            # Load Assets
+            self.feature_names = joblib.load(path_features)
+            self.class_names = joblib.load(path_classes)
+            x_train_array = joblib.load(path_train)
             
-            # Handle missing values
-            if df[col].isnull().any() or np.isinf(df[col]).any():
-                defaults = {'Age': 25, 'Height': 170, 'Weight': 70}
-                df[col] = df[col].fillna(defaults.get(col, 0))
+            # Konversi ke DataFrame
+            if isinstance(x_train_array, np.ndarray):
+                if self.feature_names:
+                    self.data_train_encoded = pd.DataFrame(x_train_array, columns=self.feature_names)
+            elif isinstance(x_train_array, pd.DataFrame):
+                self.data_train_encoded = x_train_array
             
-            # Konversi tinggi dari meter ke cm jika perlu
-            if col == 'Height' and df[col].iloc[0] < 10:
-                df[col] = df[col] * 100
+            return True
+        except Exception as e:
+            st.error(f"Error loading dataset: {e}")
+            return False
+
+# ==============================================================================
+# 2. CLASS INPUT DATA
+# ==============================================================================
+@dataclass
+class InputData:
+    # Atribut Data
+    Age: int
+    Gender: str
+    Height: float
+    Weight: float
+    family_history_with_overweight: str
+    FAVC: str
+    FCVC: float
+    NCP: float
+    CAEC: str
+    SMOKE: str
+    CH2O: float
+    SCC: str
+    FAF: float
+    TUE: float
+    CALC: str
+    MTRANS: str
+    Id: int = 0 
+
+    def Get_raw_Data(self) -> dict:
+        return asdict(self)
+
+    def preprocess(self, feature_columns: list) -> pd.DataFrame:
+        """Preprocessing data input user agar sesuai format model"""
+        input_dict = self.Get_raw_Data()
+        df = pd.DataFrame([input_dict])
+
+        if df.empty: return None #type: ignore
+
+        try:
+            # 1. Handle Fitur Kontinyu
+            for col in CONTINUOUS_COLS:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # Handle missing/inf values
+                if df[col].isnull().any() or np.isinf(df[col]).any():
+                    defaults = {'Age': 25, 'Height': 170, 'Weight': 70}
+                    df[col] = df[col].fillna(defaults.get(col, 0))
+                
+                # Konversi cm ke meter jika perlu
+                if col == 'Height' and df[col].iloc[0] < 10:
+                    df[col] = df[col] * 100
+                
+                # Casting
+                if col == 'Age' or col == 'Height':
+                    df[col] = df[col].round().astype(int)
+                else:
+                    df[col] = df[col].round(3).astype(float)
             
-            # Casting tipe data
-            if col == 'Age' or col == 'Height':
-                df[col] = df[col].round().astype(int)
-            else:
-                df[col] = df[col].round(3).astype(float)
+            # 2. Encode Kategorikal
+            df['Gender'] = df['Gender'].map(GENDER_MAP).astype(int)
+            df['family_history_with_overweight'] = df['family_history_with_overweight'].map(FAMILY_HISTORY_MAP).astype(int)
+            df['FAVC'] = df['FAVC'].map(FAVC_MAP).astype(int)
+            df['SCC'] = df['SCC'].map(SCC_MAP).astype(int)
+            df['SMOKE'] = df['SMOKE'].map(SMOKE_MAP).astype(int)
+            df['CAEC'] = df['CAEC'].map(CAEC_MAP).astype(int)
+            df['CALC'] = df['CALC'].map(CALC_MAP).astype(int)
+            df['MTRANS'] = df['MTRANS'].map(MTRANS_MAP).astype(int)
+            
+            # 3. Proses Ordinal
+            ordinal_defaults = {'FCVC': 2, 'NCP': 3, 'CH2O': 2, 'FAF': 1, 'TUE': 1}
+            for col in ORDINAL_COLS:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(ordinal_defaults[col]).round().astype(int)
+            
+            # 4. Reorder Kolom
+            df = df[feature_columns]
+            return df
+
+        except Exception as e:
+            st.error(f"Error preprocessing: {e}")
+            return None #type: ignore
+
+# ==============================================================================
+# 3. CLASS HASIL PREDIKSI
+# ==============================================================================
+class Hasil_Prediksi:
+    def __init__(self, kategori_berat: str, probabilitas: float, data_input: InputData):
+        self.id = None 
+        self.kategori_berat = kategori_berat
+        self.probabilitas = probabilitas
+        self.data_input = data_input
+        # Atribut tambahan untuk menyimpan hasil analisis sementara (opsional)
+        self.lime_explanation = None
+        self.dice_recommendation = None
+
+    def Display_Result(self) -> str:
+        return self.kategori_berat.replace('_', ' ')
+
+    def Save_Result(self, user_id: str):
+        """Menyimpan input dan hasil prediksi ke Supabase"""
+        try:
+            # 1. Simpan Input
+            ok_input, id_input = insert_input_to_supabase(self.data_input.Get_raw_Data(), user_id)
+            
+            if ok_input and id_input:
+                self.data_input.Id = id_input 
+                
+                # 2. Simpan Prediksi
+                ok_pred, resp_pred = insert_prediction_to_supabase(
+                    id_input=id_input,
+                    hasil_prediksi=self.kategori_berat,
+                    probabilitas=self.probabilitas
+                )
+                
+                if ok_pred:
+                    # Ekstrak ID Prediksi
+                    if isinstance(resp_pred, list) and len(resp_pred) > 0:
+                        self.id = resp_pred[0].get('ID_Prediksi') or resp_pred[0].get('id')
+                    elif isinstance(resp_pred, dict):
+                        self.id = resp_pred.get('ID_Prediksi') or resp_pred.get('id')
+                    return True
+            return False
+        except Exception as e:
+            st.warning(f"Gagal menyimpan data: {e}")
+            return False
+
+# ==============================================================================
+# 4. CLASS MODEL PREDIKSI
+# ==============================================================================
+class Model_Prediksi:
+    def __init__(self):
+        self.model = None
+        self.encoders = {}
+        self.feature_names = []
+        self.class_names = []
         
-        # Encode fitur kategorikal
-        df['Gender'] = df['Gender'].map(GENDER_MAP).astype(int)
-        df['family_history_with_overweight'] = df['family_history_with_overweight'].map(FAMILY_HISTORY_MAP).astype(int)
-        df['FAVC'] = df['FAVC'].map(FAVC_MAP).astype(int)
-        df['SCC'] = df['SCC'].map(SCC_MAP).astype(int)
-        df['SMOKE'] = df['SMOKE'].map(SMOKE_MAP).astype(int)
-        df['CAEC'] = df['CAEC'].map(CAEC_MAP).astype(int)
-        df['CALC'] = df['CALC'].map(CALC_MAP).astype(int)
-        df['MTRANS'] = df['MTRANS'].map(MTRANS_MAP).astype(int)
+    def loadmodel(self):
+        """Memuat Model CatBoost dan Encoders"""
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            model_dir = os.path.join(base_dir, "Model_Website")
+            
+            # Load Model
+            self.model = CatBoostClassifier()
+            self.model.load_model(os.path.join(model_dir, "CatBoost_Model.cbm"))
+            
+            # Load Metadata
+            self.encoders[TARGET_NAME] = joblib.load(os.path.join(model_dir, "Y_Processed.pkl"))
+            self.feature_names = joblib.load(os.path.join(model_dir, "X_ClassNames.pkl"))
+            self.class_names = joblib.load(os.path.join(model_dir, "Y_ClassNames.pkl"))
+            
+            return True
+        except Exception as e:
+            st.error(f"Error loading model: {e}")
+            return False
+
+    def predict(self, data: InputData) -> Hasil_Prediksi:
+        """Melakukan prediksi berdasarkan InputData"""
+        # 1. Preprocess
+        df_processed = data.preprocess(self.feature_names)
+        if df_processed is None: return None #type: ignore
+            
+        # 2. Predict Probabilitas
+        prediction_proba = self.model.predict_proba(df_processed) #type: ignore
+        predicted_class_index = np.argmax(prediction_proba[0])
         
-        # Proses fitur ordinal
-        ordinal_defaults = {'FCVC': 2, 'NCP': 3, 'CH2O': 2, 'FAF': 1, 'TUE': 1}
-        for col in ORDINAL_COLS:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(ordinal_defaults[col]).round().astype(int)
+        # 3. Decode
+        predicted_class = self.encoders[TARGET_NAME].classes_[predicted_class_index]
+        prediction_probability = prediction_proba[0][predicted_class_index]
         
-        # Reorder kolom sesuai feature list
-        df = df[all_features_list]
-        
-        return df
-        
-    except KeyError as e:
-        st.error(f"Error: Kolom yang hilang saat preprocessing: {e}")
-        return None
-    except Exception as e:
-        st.error(f"Error saat preprocessing data input: {e}")
-        return None
+        # 4. Return Object
+        return Hasil_Prediksi(
+            kategori_berat=predicted_class,
+            probabilitas=float(prediction_probability),
+            data_input=data
+        )
 
 @st.cache_resource
-def load_all_assets():
-
-    paths = get_model_paths()
+def initialize_system():
+    # 1. Init Classes
+    dataset = Dataset()
+    model = Model_Prediksi()
     
-    try:
-        # Load model
-        model = CatBoostClassifier()
-        model.load_model(paths['model'])
-        
-        # Load encoders dan metadata
-        target_encoder = joblib.load(paths['target_encoder'])
-        all_features = joblib.load(paths['feature_names'])
-        class_names = joblib.load(paths['class_names'])
-        encoders = {TARGET_NAME: target_encoder}
-        
-        # Load training data
-        x_train_array = joblib.load(paths['x_train'])
-        
-        # Konversi ke DataFrame jika perlu
-        if isinstance(x_train_array, np.ndarray):
-            if all_features:
-                x_train_encoded = pd.DataFrame(x_train_array, columns=all_features)
-            else:
-                st.error("Gagal konversi: 'all_features' tidak valid.")
-                return None, None, None, None, None
-        elif isinstance(x_train_array, pd.DataFrame):
-            x_train_encoded = x_train_array
-        else:
-            st.error(f"Tipe X_train tidak didukung: {type(x_train_array)}")
-            return None, None, None, None, None
-        
-        # Validasi hasil
-        if not isinstance(x_train_encoded, pd.DataFrame):
-            st.error("X_train tidak berhasil dikonversi ke DataFrame.")
-            return None, None, None, None, None
-        
-        return model, encoders, all_features, class_names, x_train_encoded
-        
-    except FileNotFoundError as e:
-        st.error(f"File tidak ditemukan: {e}")
-        return None, None, None, None, None
-    except Exception as e:
-        st.error(f"Error saat memuat aset: {e}")
-        return None, None, None, None, None
-
-# ================================================================================
-# APLIKASI STREAMLIT UTAMA
-# ================================================================================
+    # 2. Load Data & Model
+    if not dataset.LoadDataset(): return None
+    if not model.loadmodel(): return None
+    
+    # 3. Init LIME Explainer (Menggunakan Function Import, bukan Class)
+    # Ini disimpan supaya tidak perlu init berulang-ulang
+    lime_explainer = None
+    if dataset.data_train_encoded is not None:
+        lime_explainer = initialize_lime_explainer(
+            dataset.data_train_encoded, 
+            dataset.feature_names, 
+            dataset.class_names
+        )
+    
+    return dataset, model, lime_explainer
 
 def run_prediction_app():
-
-    st.set_page_config(page_title="Prediksi Obesitas (XAI)", layout="wide")
+    st.set_page_config(page_title="Prediksi Obesitas (Class Integrated)", layout="wide")
     
-    # Sidebar - User Info
+    # Sidebar
     with st.sidebar:
         st.title(f"Halo, {st.session_state.get('user_name', 'Pengguna')}!")
-        st.write(f"**Email:** {st.session_state.get('user')}")
-        st.write(f"**Role:** {st.session_state.get('user_role')}")
+        st.write(f"Email: {st.session_state.get('user')}")
+        if st.button("Riwayat"): st.session_state.page = "riwayat"; st.rerun()
+        if st.button("Logout"): User.logout(); st.session_state.page = "login"; st.rerun()
+
+    if st.session_state.page == "riwayat":
+        # Logika untuk menampilkan halaman history via Class User
+        current_user_id = st.session_state.get('user_id')
+        current_user_name = st.session_state.get('user_name')
         
-        if st.button("Riwayat Pengguna", use_container_width=True):
-            st.session_state.page = "riwayat"
-            st.rerun()
-        
-        if st.button("Logout", use_container_width=True):
-            logout()
-            st.session_state.page = "login"
-            st.rerun()
-        
-        st.markdown("---")
-        st.title("Informasi")
-        st.write("Aplikasi ini memprediksi tingkat obesitas berdasarkan kebiasaan sehari-hari.")
-        
-        st.markdown("---")
-        if st.button("Hapus Cache & Muat Ulang"):
-            st.cache_resource.clear()
-            st.rerun()
-    
-    # Load semua aset
-    loaded_assets = load_all_assets()
-    model, encoders, ALL_FEATURES, CLASS_NAMES, x_train_encoded = loaded_assets
-    
-    if any(asset is None for asset in loaded_assets):
-        st.error("Gagal memuat aset penting. Aplikasi berhenti.")
-        st.stop()
-    
-    # Cari kelas Normal Weight
-    NORMAL_WEIGHT_CLASS = 'Normal_Weight'
-    if CLASS_NAMES:
-        for c in CLASS_NAMES:
-            if "normal" in c.lower():
-                NORMAL_WEIGHT_CLASS = c
-                break
-    
-    # Inisialisasi LIME explainer
-    lime_explainer = initialize_lime_explainer(x_train_encoded, ALL_FEATURES, CLASS_NAMES)
-    
-    # Inisialisasi session state
-    if 'prediction_done' not in st.session_state:
-        st.session_state.prediction_done = False
-        st.session_state.user_input_raw = None
+        if current_user_id:
+            # Buat objek user dengan ID yang sedang login
+            user_obj = User(user_id=current_user_id, name=current_user_name) # type: ignore
+            user_obj.render_history_page()
+        else:
+            st.warning("Sesi kadaluarsa. Silakan login kembali.")
+    # Initialize System
+    system = initialize_system()
+    if not system: st.stop()
+    dataset, model, lime_explainer = system
+
+    # Session State
+    if 'prediction_result' not in st.session_state:
+        st.session_state.prediction_result = None
         st.session_state.show_lime = False
         st.session_state.show_dice = False
-    
-    # Header
-    st.title("Prediksi Tingkat Obesitas & Rekomendasi Perubahan")
-    st.markdown("Masukkan data Anda di bawah ini untuk mendapatkan prediksi dan penjelasan (XAI).")
-    
-    # Form Input
+
+    # Main UI
+    st.title("Prediksi Tingkat Obesitas")
     st.header("Masukkan Data Anda")
-    
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.subheader("Data Pribadi")
-        gender = st.selectbox('Gender', list(GENDER_MAP.keys()), key='gender')
-        age = st.number_input('Umur', 1, 100, 22, 1, key='age')
-        height_cm = st.number_input('Tinggi Badan (cm)', 100, 250, 168, key='height_cm')
-        weight = st.number_input('Berat Badan (kg)', 30, 200, 63, key='weight')
-        family_history = st.selectbox(
-            'Riwayat keluarga obesitas?',
+        gender = st.selectbox('Gender', list(GENDER_MAP.keys()))
+        age = st.number_input('Umur', 1, 100, 25)
+        height = st.number_input('Tinggi (cm)', 100, 250, 170)
+        weight = st.number_input('Berat (kg)', 30, 200, 70)
+        family = st.selectbox(
+            'Riwayat keluarga obesitas?', 
             list(FAMILY_HISTORY_MAP.keys()),
             format_func=lambda x: 'Tidak' if x == 'no' else 'Ya',
             key='family'
         )
-    
+
     with col2:
         st.subheader("Kebiasaan Makan")
         favc = st.selectbox(
@@ -244,20 +328,20 @@ def run_prediction_app():
             format_func=lambda x: {1: 'Tidak Pernah', 2: 'Setengah dari jumlah makan per hari', 3: 'Setiap Makan'}[x],
             key='fcvc'
         )
-        caec_choice = st.selectbox(
+        caec = st.selectbox(
             'Seberapa sering makan cemilan tinggi kalori di antara waktu makan dalam seminggu?',
             list(CAEC_MAP.keys()),
             index=1,  # Default: Sometimes
             format_func=lambda x: {'no': 'Tidak Pernah', 'Sometimes': '1-2x/minggu','Frequently': '3-5x/minggu', 'Always': '6-7x/minggu'}[x],
             key='caec'
         )
-        calc_choice = st.selectbox('Berapa porsi anda mengonsumsi alkohol bir per hari (1 porsi: 350 ml)?',
+        calc = st.selectbox('Berapa porsi anda mengonsumsi alkohol bir per hari (1 porsi: 350 ml)?',
             list(CALC_MAP.keys()),
             index=0, # Default: no
             format_func=lambda x: {'no': 'Tidak Pernah', 'Sometimes': '2 porsi', 'Frequently': '3 porsi', 'Always': '> 4 porsi'}[x],
             key='calc'
         )
-    
+
     with col3:
         st.subheader("Gaya Hidup")
         smoke = st.selectbox(
@@ -286,266 +370,138 @@ def run_prediction_app():
             format_func=lambda x: {0: '< 1 jam', 1: '1 - 2 jam', 2: '>2 jam'}[x],
             key='tue')
         mtrans = st.selectbox('Transportasi utama', list(MTRANS_MAP.keys()), index=1, key='mtrans')
-    
-    # Tombol Prediksi
+
+    # Prediksi
     st.markdown("---")
-    if st.button("Dapatkan Prediksi dan Penjelasan", type="primary", use_container_width=True):
+    if st.button("Prediksi Sekarang", type="primary", use_container_width=True):
         try:
-            height = float(height_cm) / 100.0
-            st.session_state.user_input_raw = {
-                'Age': int(age),
-                'Gender': str(gender),
-                'Height': height,
-                'Weight': float(weight),
-                'CALC': str(calc_choice),
-                'FAVC': str(favc),
-                'FCVC': str(fcvc),
-                'NCP': str(ncp),
-                'SCC': str(scc),
-                'SMOKE': str(smoke),
-                'CH2O': str(ch2o),
-                'family_history_with_overweight': str(family_history),
-                'FAF': str(faf),
-                'TUE': str(tue),
-                'CAEC': str(caec_choice),
-                'MTRANS': str(mtrans)
-            }
-            st.session_state.prediction_done = True
-            st.session_state.show_lime = False
-            st.session_state.show_dice = False
-            st.rerun()
-        except (ValueError, TypeError) as e:
-            st.error(f"Error pada input: {str(e)}")
-    
-    # Tampilkan Hasil Prediksi
-    if st.session_state.prediction_done:
-        user_input_raw = st.session_state.user_input_raw
-        input_df_processed = preprocess_input_data(user_input_raw, ALL_FEATURES)
-        
-        if input_df_processed is not None:
-            # Simpan input user ke Supabase dan dapatkan ID_Input
-            id_input = None
-            try:
-                user_input_to_save = st.session_state.get('user_input_raw')
-                if user_input_to_save and isinstance(user_input_to_save, dict):
-                    ok, id_input = insert_input_to_supabase(user_input_to_save, st.session_state.get('user_id'))
-            except Exception as e:
-                st.warning(f"Terjadi error saat menyimpan data input: {str(e)}")
+            # Create Input Object
+            input_data = InputData(
+                Age=int(age), Gender=str(gender), Height=float(height)/100.0, Weight=float(weight),
+                family_history_with_overweight=str(family), FAVC=str(favc), FCVC=float(fcvc),
+                NCP=float(ncp), CAEC=str(caec), SMOKE=str(smoke), CH2O=float(ch2o), SCC=str(scc),
+                FAF=float(faf), TUE=float(tue), CALC=str(calc), MTRANS=str(mtrans)
+            )
+            
+            # Predict
+            hasil = model.predict(input_data)
+            
+            if hasil:
+                st.session_state.prediction_result = hasil
+                st.session_state.show_lime = False
+                st.session_state.show_dice = False
+                
+                # Save
+                user_id = st.session_state.get('user_id')
+                if user_id: hasil.Save_Result(user_id)
+                st.rerun()
+                
+        except Exception as e:
+            st.error(f"Input Error: {e}")
 
-            # Prediksi
-            prediction_proba = model.predict_proba(input_df_processed[ALL_FEATURES]) # type: ignore
-            predicted_class_index = np.argmax(prediction_proba[0])
-            predicted_class = encoders[TARGET_NAME].classes_[predicted_class_index] # type: ignore
-            prediction_probability = prediction_proba[0][predicted_class_index]
+    # Result Display
+    if st.session_state.prediction_result:
+        hasil = st.session_state.prediction_result
+        st.markdown("---")
+        c1, c2 = st.columns([2,1])
+        with c1: st.success(f"**Hasil:** {hasil.Display_Result()}")
+        with c2: st.info(f"**Probabilitas:** {hasil.probabilitas:.2%}")
 
-            # Simpan hasil prediksi ke Supabase jika ID_Input ada
-            if id_input is not None:
-                try:
-                    ok_pred, resp_pred = insert_prediction_to_supabase(
-                        id_input=id_input,
-                        hasil_prediksi=predicted_class,
-                        probabilitas=float(prediction_probability)
+        # XAI Section
+        st.markdown("### Analisis Lanjutan")
+        col_xai1, col_xai2 = st.columns(2)
+        with col_xai1: 
+            if st.button("🔍 Analisis LIME"): st.session_state.show_lime=True; st.session_state.show_dice=False
+        with col_xai2:
+            if st.button("💡 Rekomendasi DiCE"): st.session_state.show_dice=True; st.session_state.show_lime=False
+
+        # ------------------------------------------------------------------
+        # LOGIKA LIME (LANGSUNG PAKAI FUNCTION IMPORT)
+        # ------------------------------------------------------------------
+        if st.session_state.show_lime:
+            with st.spinner("Analyzing..."):
+                if lime_explainer:
+                    # Preprocess ulang untuk LIME
+                    df_processed = hasil.data_input.preprocess(model.feature_names)
+                    pred_idx = list(model.encoders[TARGET_NAME].classes_).index(hasil.kategori_berat)
+                    
+                    # 1. Generate LIME instance
+                    # Kita gunakan 'predict_proba_catboost_for_lime' dari import
+                    lime_exp = lime_explainer.explain_instance(
+                        df_processed.values[0],
+                        lambda x: predict_proba_catboost_for_lime(x, model.model, model.feature_names),
+                        num_features=7,
+                        top_labels=1
                     )
-                    if ok_pred:
-                        try:
-                            inserted = resp_pred
-                            id_prediksi = None
-                            if isinstance(inserted, list) and len(inserted) > 0:
-                                first = inserted[0]
-                                # common Supabase PK names could be 'ID_Prediksi' or 'id'
-                                id_prediksi = first.get('ID_Prediksi') or first.get('id') or first.get('ID')
-                            elif isinstance(inserted, dict):
-                                id_prediksi = inserted.get('ID_Prediksi') or inserted.get('id') or inserted.get('ID')
-
-                            if id_prediksi is not None:
-                                st.session_state['id_prediksi'] = id_prediksi
-                        except Exception:
-                            pass
-                    else:
-                        st.warning(f"Gagal menyimpan hasil prediksi: {resp_pred}")
-                except Exception as e:
-                    st.warning(f"Terjadi error saat menyimpan prediksi: {str(e)}")
-            
-            # Tampilkan Hasil
-            st.markdown("---")
-            st.header("Hasil Analisis")
-            
-            col_result1, col_result2 = st.columns([2, 1])
-            
-            with col_result1:
-                st.subheader("Prediksi Model")
-                st.markdown(f"Status berat badan Anda: **{predicted_class.replace('_', ' ')}**")
-            
-            with col_result2:
-                st.subheader("Probabilitas")
-                for i, class_name in enumerate(CLASS_NAMES): # type: ignore
-                    prob = prediction_proba[0][i]
-                    st.write(f"{class_name.replace('_', ' ')}: {prob:.2%}")
-            
-            # Tombol Analisis XAI
-            st.markdown("---")
-            st.subheader("Pilih Analisis Lanjutan (XAI)")
-            
-            col_lime, col_dice = st.columns(2)
-            
-            with col_lime:
-                if st.button("Analisis LIME (Faktor Pengaruh)", use_container_width=True):
-                    st.session_state.show_lime = True
-                    st.session_state.show_dice = False
-            
-            with col_dice:
-                if st.button("Rekomendasi DiCE (Saran Perubahan)", use_container_width=True):
-                    st.session_state.show_dice = True
-                    st.session_state.show_lime = False
-            
-            # Tampilkan Analisis LIME
-            if st.session_state.get('show_lime', False):
-                st.markdown("---")
-                st.subheader("Penjelasan LIME (Faktor-faktor yang Mempengaruhi Prediksi)")
-                
-                with st.spinner("Membuat penjelasan LIME..."):
-                    try:
-                        lime_exp = lime_explainer.explain_instance(
-                            input_df_processed[ALL_FEATURES].values[0],
-                            lambda x: predict_proba_catboost_for_lime(x, model, ALL_FEATURES),
-                            num_features=7,
-                            top_labels=1
-                        )
-                        
-                        # Tampilkan Grafik LIME
-                        fig = lime_exp.as_pyplot_figure(label=predicted_class_index)
-                        st.pyplot(fig, use_container_width=True)
-                        
-                        # ===========================================================
-                        # BAGIAN KESIMPULAN LIME
-                        # ===========================================================
-                        st.markdown("### Kesimpulan Analisis")
-                        lime_text = generate_lime_explanation_text(
-                            lime_exp, 
-                            predicted_class_index, 
-                            predicted_class, 
-                            st.session_state.user_input_raw
-                        )
-                        st.info(lime_text)
-                        # ===========================================================
-
-                        # Save top 5 LIME features to Supabase under Faktor_Dominan
-                        try:
-                            top_list = lime_exp.as_list(label=predicted_class_index)
-                            top5 = top_list[:5]
-                            top_features = []
-                            for feat, weight in top5:
-                                top_features.append({'feature': str(feat), 'weight': float(weight)})
-
-                            id_prediksi = st.session_state.get('id_prediksi')
-                            if id_prediksi is not None:
-                                ok_f, resp_f = insert_faktor_dominan(
-                                    id_prediksi=id_prediksi,
-                                    top_features={item['feature']: item['weight'] for item in top_features}
-                                )
-                        except Exception as e:
-                            st.warning(f'Gagal mengekstrak atau menyimpan fitur LIME: {e}')
-                    except Exception as e:
-                        st.error(f"Gagal membuat penjelasan LIME: {e}")
-            
-            # Tampilkan Rekomendasi DiCE
-            if st.session_state.get('show_dice', False):
-                st.markdown("---")
-                st.subheader("Rekomendasi DiCE (Saran Bertahap untuk Mencapai Berat Badan Ideal)")
-                
-                # Tentukan target berikutnya
-                next_target, is_final_goal, all_steps = get_next_target_class(predicted_class, CLASS_NAMES)
-                
-                if predicted_class == next_target:
-                    st.success("""
-                    **Selamat!**
                     
-                    Berat badan Anda sudah dalam kategori **Normal** atau lebih baik, sehingga tidak 
-                    diperlukan rekomendasi perubahan. Pertahankan gaya hidup sehat Anda!
-                    """)
+                    # 2. Generate Text
+                    lime_text = generate_lime_explanation_text(
+                        lime_exp,
+                        pred_idx,
+                        hasil.kategori_berat,
+                        hasil.data_input.Get_raw_Data()
+                    )
+                    
+                    # Tampilkan
+                    st.pyplot(lime_exp.as_pyplot_figure(label=pred_idx))
+                    st.info(lime_text)
+                    
+                    # Simpan Faktor Dominan ke DB
+                    if hasil.id:
+                        try:
+                            top_list = lime_exp.as_list(label=pred_idx)
+                            top_features = {str(feat): float(weight) for feat, weight in top_list[:5]}
+                            insert_faktor_dominan(hasil.id, top_features)
+                        except Exception: pass
                 else:
-                    
-                    total_steps = len(all_steps) - 1
-                    current_step = 1
-                    
-                    with st.spinner(f"Mencari rekomendasi untuk mencapai {next_target.replace('_', ' ')}..."):
-                        try:
-                            desired_class_index = int(encoders[TARGET_NAME].transform([next_target])[0]) # type: ignore
-                            
-                            # Panggil fungsi get_dice_recommendations
-                            dice_result = get_dice_recommendations(
-                                x_train_encoded,
-                                model,
-                                encoders,
-                                input_df_processed,
-                                desired_class_index,
-                                ALL_FEATURES
-                            )
-                            
-                            if dice_result and dice_result.cf_examples_list and dice_result.cf_examples_list[0].final_cfs_df is not None:
-                                cf_df = dice_result.cf_examples_list[0].final_cfs_df
-                                cf_df_decoded = decode_dice_dataframe(cf_df, encoders, ALL_FEATURES)
-                                
-                                # Data saat ini
-                                q_df = input_df_processed.copy()
-                                q_df[TARGET_NAME] = predicted_class
-                                q_decoded = decode_dice_dataframe(q_df, encoders, ALL_FEATURES)
-                                
-                                # Tampilkan step description
-                                st.markdown(f"{get_step_description(predicted_class, next_target, current_step, total_steps)}")
-                                
-                                # ===========================================================
-                                # BAGIAN KESIMPULAN DICE
-                                # ===========================================================
-                                dice_summary = summarize_dice_changes(dice_result, input_df_processed, encoders, ALL_FEATURES)
-                                
-                                if dice_summary:
-                                    st.info("💡 **Ringkasan Saran Perubahan Utama:**")
-                                    for msg in dice_summary:
-                                        st.markdown(f"- {msg}")
-                                    st.markdown("---")
-                                # ===========================================================
-                                
-                                # Tampilkan perbandingan
-                                st.markdown("Data Anda Saat Ini")
-                                st.dataframe(q_decoded, use_container_width=True)
-                                
-                                st.markdown("---")
-                                st.markdown("Rekomendasi Perubahan (Opsi yang tersedia)")
-                                st.markdown(f"**Target: {next_target.replace('_', ' ')}**")
-                                
-                                st.dataframe(cf_df_decoded, use_container_width=True)
+                    st.error("LIME Explainer belum siap (Dataset mungkin gagal dimuat).")
 
-                                # Save DiCE recommendation to Supabase
-                                try:
-                                    id_prediksi = st.session_state.get('id_prediksi')
-                                    if id_prediksi is not None:
-                                        ok_r, resp_r = insert_rekomendasi_to_supabase(
-                                            id_prediksi=id_prediksi,
-                                            target_prediksi=next_target, # type: ignore
-                                            perubahan_prediksi=cf_df_decoded.to_dict('records')
-                                        )
-                                        if ok_r:
-                                            pass # Berhasil (silent)
-                                        else:
-                                            st.warning(f'Gagal menyimpan rekomendasi: {resp_r}')
-                                except Exception as e:
-                                    st.warning(f'Gagal menyimpan rekomendasi ke Supabase: {e}')
-                                
-                            else:
-                                st.warning("""
-                                Tidak dapat menemukan rekomendasi perubahan yang sesuai saat ini.
-                                """)
+        # ------------------------------------------------------------------
+        # LOGIKA DiCE (LANGSUNG PAKAI FUNCTION IMPORT)
+        # ------------------------------------------------------------------
+        if st.session_state.show_dice:
+            with st.spinner("Generating Recommendations..."):
+                df_processed = hasil.data_input.preprocess(model.feature_names)
+                
+                # 1. Tentukan Target
+                next_target, is_final, all_steps = get_next_target_class(hasil.kategori_berat, model.class_names)
+                
+                if hasil.kategori_berat == next_target:
+                    st.success("Berat badan sudah ideal.")
+                else:
+                    # 2. Generate Recommendations
+                    desired_class_index = int(model.encoders[TARGET_NAME].transform([next_target])[0])
+                    
+                    dice_result = get_dice_recommendations(
+                        dataset.data_train_encoded, model.model, model.encoders,
+                        df_processed, desired_class_index, model.feature_names
+                    )
+                    
+                    if dice_result and dice_result.cf_examples_list and dice_result.cf_examples_list[0].final_cfs_df is not None:
+                        cf_df = dice_result.cf_examples_list[0].final_cfs_df
                         
-                        except ValueError:
-                            st.error(f"Kelas target '{next_target}' tidak ditemukan dalam model.")
-                            st.info(f"Kelas yang tersedia: {', '.join(encoders[TARGET_NAME].classes_)}") # type: ignore
+                        # Decode & Summarize
+                        cf_decoded = decode_dice_dataframe(cf_df, model.encoders, model.feature_names)
+                        summary = summarize_dice_changes(dice_result, df_processed, model.encoders, model.feature_names)
+                        step_desc = get_step_description(hasil.kategori_berat, next_target, 1, len(all_steps)-1)
                         
-                        except Exception as e:
-                            st.error(f"Gagal menghasilkan rekomendasi: {e}")
-        
-        else:
-            st.error("Gagal memproses input data. Silakan periksa kembali data yang Anda masukkan.")
+                        # Tampilkan
+                        st.write(step_desc)
+                        if summary:
+                            st.info("💡 **Saran Perubahan:**")
+                            for msg in summary: st.markdown(f"- {msg}")
+                        st.dataframe(cf_decoded)
+                        
+                        # Simpan Rekomendasi
+                        if hasil.id:
+                            try:
+                                insert_rekomendasi_to_supabase(
+                                    id_prediksi=hasil.id, target_prediksi=next_target,
+                                    perubahan_prediksi=cf_decoded.to_dict('records')
+                                )
+                            except Exception: pass
+                    else:
+                        st.warning("Tidak ada rekomendasi spesifik.")
 
 if __name__ == "__main__":
     run_prediction_app()

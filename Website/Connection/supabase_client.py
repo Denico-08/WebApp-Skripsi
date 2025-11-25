@@ -69,7 +69,6 @@ def insert_input_to_supabase(user_input_raw: dict, user_id: Optional[Any] = None
     except Exception as e:
         return False, str(e)
 
-
 def insert_faktor_dominan(id_prediksi: int, top_features: Any) -> Tuple[bool, Any]:
     client = get_supabase_client()
     if client is None:
@@ -93,7 +92,6 @@ def insert_faktor_dominan(id_prediksi: int, top_features: Any) -> Tuple[bool, An
             return False, error_message
     except Exception as e:
         return False, str(e)
-
 
 def insert_rekomendasi_to_supabase(id_prediksi: int, target_prediksi: str, perubahan_prediksi: Any) -> Tuple[bool, Any]:
 
