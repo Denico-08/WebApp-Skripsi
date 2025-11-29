@@ -21,34 +21,21 @@ class DiceHelper:
             self.classes_ = list(class_labels)
 
     def predict_proba(self, X):
-        """
-        Implementasi fungsi prediksi yang dibutuhkan oleh dice_ml.Model.
-        Menggunakan model yang disimpan di atribut self.model.
-        """
         if self.model is None:
             raise ValueError("Model belum diinisialisasi di DiceHelper.")
 
-        if isinstance(X, np.ndarray):
+        # Konversi ke DataFrame jika inputnya bukan DataFrame, untuk konsistensi.
+        if not isinstance(X, pd.DataFrame):
             X = pd.DataFrame(X, columns=self.feature_names)
         
-        X_copy = X.copy()
+        # Pastikan urutan kolom sesuai dengan yang diharapkan model.
+        # Ini adalah satu-satunya manipulasi yang seharusnya kita lakukan.
+        X_ordered = X[self.feature_names]
         
-        # Preprocessing numeric
-        if self.continuous_features:
-            for col in self.continuous_features:
-                if col in X_copy.columns:
-                    X_copy[col] = pd.to_numeric(X_copy[col], errors='coerce').fillna(X_copy[col].median() or 0)
+        # Langsung panggil predict_proba dari model yang sebenarnya.
+        probs = self.model.predict_proba(X_ordered)
         
-        # Preprocessing categorical
-        if self.categorical_features:
-            for col in self.categorical_features:
-                if col in X_copy.columns:
-                    X_copy[col] = pd.to_numeric(X_copy[col], errors='coerce').fillna(0).round().astype(int)
-        
-        X_copy = X_copy[self.feature_names]
-        probs = self.model.predict_proba(X_copy)
-        
-        # Reorder probabilities if needed
+        # Logika untuk menyusun ulang probabilitas berdasarkan urutan kelas (jika perlu)
         try:
             model_cls = list(getattr(self.model, 'classes_', []))
             if hasattr(self, 'class_labels') and self.class_labels is not None and model_cls:
@@ -116,8 +103,20 @@ class DiceHelper:
             # DEBUG: Cek prediksi query
             current_pred_proba = model_obj.predict_proba(query_instance)
             current_pred_idx = np.argmax(current_pred_proba[0])        
+            current_pred_label = encoders[TARGET_NAME].classes_[current_pred_idx]
+            
             # Dapatkan desired class label
             desired_class_label = encoders[TARGET_NAME].classes_[desired_class_index]
+            
+            st.warning(f"""
+            **Informasi Debugging DiCE:**
+            - **Input Awal (setelah diproses):**
+            ```
+            {query_instance.to_string()}
+            ```
+            - **Prediksi Awal Model:** `{current_pred_label}` (Probabilitas: `{current_pred_proba[0][current_pred_idx]:.2f}`)
+            - **Target Counterfactual:** `{desired_class_label}`
+            """)
             
             # STRATEGI PENCARIAN BERTINGKAT
             strategies = [
@@ -148,34 +147,28 @@ class DiceHelper:
             ]
             
             for strategy_idx, strategy in enumerate(strategies):
+                st.info(f"🔎 Mencoba Strategi #{strategy_idx + 1}: **{strategy['name']}**")
             
                 # Tentukan fitur yang tidak boleh diubah
                 base_immutables = ['Gender', 'Age', 'Height', 'family_history_with_overweight']
                 immutable_features = base_immutables if strategy['allow_weight'] else base_immutables + ['Weight']
                 features_to_vary = [col for col in all_features_list if col not in immutable_features]
                 
-                # Batasan nilai - semakin fleksibel untuk strategi lanjutan
-                current_weight = float(query_instance['Weight'].iloc[0])
-                if strategy['name'] == 'very_relaxed':
-                    weight_min = max(30.0, round(current_weight - 100.0, 1))  # Range sangat besar
-                elif strategy['name'] == 'with_weight_relaxed':
-                    weight_min = max(30.0, round(current_weight - 70.0, 1))
-                else:
-                    weight_min = max(30.0, round(current_weight - 50.0, 1))
-                weight_max = current_weight
+                # Tidak ada batasan rentang berat badan untuk fleksibilitas maksimal
+                permitted_range = {}
                 
-                permitted_range = {
-                    **({'Weight': [weight_min, weight_max]} if strategy['allow_weight'] else {}),
-                    'FCVC': [1, 3],
-                    'NCP': [1, 4],
-                    'CH2O': [1, 3],
-                    'FAF': [0, 3],
-                    'TUE': [0, 2]
-                }
+                st.warning(f"""
+                **Parameter Pencarian (Strategi: {strategy['name']}):**
+                - **Fitur yang dapat diubah:** `{features_to_vary}`
+                - **Rentang nilai yang diizinkan:** `{permitted_range}`
+                - **Metode Pencarian:** `{strategy['methods']}`
+                """)
                 
                 # Coba berbagai metode dalam strategi ini
                 for method_idx, method in enumerate(strategy['methods']):
                     try:
+                        
+                        st.write(f"...mencoba metode `{method}`...")
                         
                         dice_explainer = Dice(data_interface, model_interface, method=method)
                         dice_result = dice_explainer.generate_counterfactuals(

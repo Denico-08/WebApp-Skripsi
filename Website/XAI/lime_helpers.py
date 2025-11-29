@@ -1,5 +1,7 @@
 from config import (
-    ALL_CATEGORICAL_COLS, GENDER_MAP, FAMILY_HISTORY_MAP, CONTINUOUS_COLS, OBESITY_GAIN_HIERARCHY, OBESITY_REDUCTION_HIERARCHY
+    ALL_CATEGORICAL_COLS, GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP, SCC_MAP, SMOKE_MAP,
+    CAEC_MAP, CALC_MAP, MTRANS_MAP, CONTINUOUS_COLS, OBESITY_GAIN_HIERARCHY, 
+    OBESITY_REDUCTION_HIERARCHY
 )
 import numpy as np
 import pandas as pd
@@ -16,12 +18,42 @@ class LimeHelper:
 
     def initialize_explainer(self, _X_train_encoded, all_features_list, class_names_list):
 
-        training_values = _X_train_encoded[all_features_list].values
+        # Buat salinan untuk dimodifikasi
+        df_encoded = _X_train_encoded.copy()
+
+        # ==============================================================================
+        # HOTFIX: Encode manual karena data training mentah tidak di-encode
+        # ==============================================================================
+        # Pastikan kolom ada sebelum mapping
+        if 'Gender' in df_encoded.columns:
+            df_encoded['Gender'] = df_encoded['Gender'].map(GENDER_MAP)
+        if 'family_history_with_overweight' in df_encoded.columns:
+            df_encoded['family_history_with_overweight'] = df_encoded['family_history_with_overweight'].map(FAMILY_HISTORY_MAP)
+        if 'FAVC' in df_encoded.columns:
+            df_encoded['FAVC'] = df_encoded['FAVC'].map(FAVC_MAP)
+        if 'SCC' in df_encoded.columns:
+            df_encoded['SCC'] = df_encoded['SCC'].map(SCC_MAP)
+        if 'SMOKE' in df_encoded.columns:
+            df_encoded['SMOKE'] = df_encoded['SMOKE'].map(SMOKE_MAP)
+        if 'CAEC' in df_encoded.columns:
+            df_encoded['CAEC'] = df_encoded['CAEC'].map(CAEC_MAP)
+        if 'CALC' in df_encoded.columns:
+            df_encoded['CALC'] = df_encoded['CALC'].map(CALC_MAP)
+        if 'MTRANS' in df_encoded.columns:
+            df_encoded['MTRANS'] = df_encoded['MTRANS'].map(MTRANS_MAP)
+        
+        # Konversi semua kolom kategorikal ke numerik, handle missing values
+        for col in ALL_CATEGORICAL_COLS:
+            if col in df_encoded.columns:
+                df_encoded[col] = pd.to_numeric(df_encoded[col], errors='coerce').fillna(0).astype(int)
+        # ==============================================================================
+
+        training_values = df_encoded[all_features_list].values
         
         categorical_feature_indices = [
-            _X_train_encoded.columns.get_loc(col) 
+            df_encoded.columns.get_loc(col) 
             for col in ALL_CATEGORICAL_COLS 
-            if col in _X_train_encoded.columns
+            if col in df_encoded.columns
         ]
         
         categorical_names_map = {}
@@ -252,10 +284,100 @@ class LimeHelper:
             return current_class, True, [current_class]
 
     def get_step_description(self, current_class, next_class, step_number, total_steps):
-        """
-        Mengembalikan deskripsi langkah perubahan status berat badan.
-        """
+
         return f"**Step {step_number}/{total_steps}**: {current_class.replace('_', ' ')} → {next_class.replace('_', ' ')}"
+
+    def generate_lime_weights(self, lime_exp, predicted_class_index, user_input_raw):
+
+        FEATURE_TRANSLATIONS = {
+            'Age': 'Umur',
+            'Gender': 'Jenis kelamin',
+            'Height': 'Tinggi badan',
+            'Weight': 'Berat badan',
+            'family_history_with_overweight': 'Riwayat keluarga obesitas',
+            'FAVC': 'Konsumsi makanan tinggi kalori',
+            'NCP': 'Jadwal makan utama',
+            'CAEC': 'Kebiasaan ngemil',
+            'SMOKE': 'Status merokok',
+            'CH2O': 'Konsumsi air putih',
+            'SCC': 'Pemantauan kalori',
+            'FAF': 'Aktivitas fisik',
+            'TUE': 'Penggunaan gawai',
+            'CALC': 'Konsumsi alkohol',
+            'MTRANS': 'Transportasi utama',
+            'FCVC': 'Konsumsi sayuran',
+        }
+
+        DECODERS = {
+            'CH2O': {1: 'Kurang (<1L)', 2: 'Cukup (1-2L)', 3: '>2L'},
+            'FCVC': {1: 'Jarang', 2: 'Kadang-kadang', 3: 'Sering/Selalu'},
+            'NCP': {1: '1x sehari', 2: '2x sehari', 3: '3x sehari', 4: 'Lebih dari 3x'},
+            'FAF': {0: 'Tidak ada', 1: 'Ringan (1-2 hari)', 2: 'Sedang (3-4 hari)', 3: 'Rutin/Tinggi'},
+            'TUE': {0: 'Rendah (0-2 jam)', 1: 'Sedang (3-5 jam)', 2: 'Tinggi (>5 jam)'},
+            'CAEC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'},
+            'CALC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'}
+        }
+        
+        try:
+            explanation_list = lime_exp.as_list(label=predicted_class_index)
+        except IndexError:
+            return []
+            
+        formatted_features = []
+        known_keys = sorted(FEATURE_TRANSLATIONS.keys(), key=len, reverse=True)
+
+        for feature_string, weight in explanation_list:
+            label = feature_string # Fallback
+            try:
+                feature_name = None
+                for key in known_keys:
+                    if key in feature_string:
+                        feature_name = key
+                        break
+                
+                if not feature_name: 
+                    formatted_features.append((label, weight))
+                    continue
+
+                raw_value = user_input_raw.get(feature_name)
+                if raw_value is None: 
+                    formatted_features.append((label, weight))
+                    continue
+
+                # Simplified sentence logic for chart labels
+                if feature_name in ['Age', 'Weight']:
+                    label = f"{FEATURE_TRANSLATIONS[feature_name]}: {int(float(raw_value))}"
+                    if feature_name == 'Weight': label += " kg"
+                
+                elif feature_name == 'Height':
+                    h_val = float(raw_value)
+                    if h_val < 3.0: h_val *= 100
+                    label = f"{FEATURE_TRANSLATIONS[feature_name]}: {int(h_val)} cm"
+
+                elif feature_name in DECODERS:
+                    raw_key = raw_value
+                    if isinstance(raw_key, float): raw_key = int(raw_key)
+                    
+                    decoded_val = DECODERS[feature_name].get(str(raw_key), str(raw_key))
+                    label = f"{FEATURE_TRANSLATIONS[feature_name]}: {decoded_val}"
+                
+                elif feature_name in ['family_history_with_overweight', 'FAVC', 'SMOKE', 'SCC']:
+                    val_str = 'Ya' if str(raw_value).lower() == 'yes' else 'Tidak'
+                    base_label = FEATURE_TRANSLATIONS[feature_name]
+                    if base_label.startswith('Anda'): # "Anda mengonsumsi..." -> "Konsumsi..."
+                         base_label = base_label.split(' ', 1)[1]
+                    label = f"{base_label.capitalize()}: {val_str}"
+
+                else:
+                    # Fallback for other categoricals like MTRANS
+                    label = f"{FEATURE_TRANSLATIONS.get(feature_name, feature_name)}: {str(raw_value).replace('_', ' ')}"
+
+            except Exception:
+                pass # Use fallback label if formatting fails
+            
+            formatted_features.append((label, weight))
+            
+        return formatted_features
 
 # ==============================================================================
 # GLOBAL BRIDGE FUNCTIONS (Agar kompatibel dengan import di file lain)
@@ -272,6 +394,9 @@ def predict_proba_catboost_for_lime(data, model_obj, all_features_list):
 
 def generate_lime_explanation_text(lime_exp, predicted_class_index, predicted_class_name, user_input_raw):
     return lime_helper_instance.generate_explanation_text(lime_exp, predicted_class_index, predicted_class_name, user_input_raw)
+
+def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
+    return lime_helper_instance.generate_lime_weights(lime_exp, predicted_class_index, user_input_raw)
 
 def get_next_target_class(current_class, class_names):
     return lime_helper_instance.get_next_target_class(current_class, class_names)

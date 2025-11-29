@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 from Connection.supabase_client import get_supabase_client
+from Role import Role
 
 class User:
     def __init__(self, email=None, password=None, name=None):
         self.email = email
         self.password = password
         self.name = name
-        self.role = None
+        self.role = Role.USER.value
         self.id = None
 
     # ==========================================================================
@@ -28,9 +29,14 @@ class User:
                 user_data = response.data[0]
                 self.id = user_data.get("ID_User") #type: ignore
                 self.name = user_data.get("Nama") #type: ignore
-                self.role = user_data.get("Role", "User") #type: ignore
                 
-                # Update Session
+                # Mengambil role dari database
+                db_role = user_data.get("Role") #type: ignore
+                
+                # --- UPDATE 3: Pastikan role valid (Opsional tapi bagus) ---
+                # Jika di DB tertulis "Admin", kita simpan sebagai string "Admin"
+                self.role = db_role if db_role else Role.USER.value
+                
                 st.session_state.user_authenticated = True
                 st.session_state.user = self.email
                 st.session_state.user_id = self.id
@@ -64,7 +70,7 @@ class User:
                 user_id = auth_response.user.id
                 insert_data = {
                     "ID_User": user_id, "Email": self.email, 
-                    "Password": self.password, "Nama": self.name, "Role": "User"
+                    "Password": self.password, "Nama": self.name, "Role": Role.USER.value
                 }
                 supabase.table("User").insert(insert_data).execute()
                 return True
@@ -76,10 +82,7 @@ class User:
             return False
 
     def get_history_data(self) -> pd.DataFrame:
-        """
-        Mengambil data riwayat prediksi milik user ini (One-to-Many).
-        Menggunakan logika robust dari History_User.py untuk merging dan cleaning.
-        """
+
         if not self.id:
             return pd.DataFrame()
 

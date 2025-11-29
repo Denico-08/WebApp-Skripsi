@@ -1,5 +1,6 @@
 import streamlit as st
 from User import User
+from Admin import run_admin_page
 from Web_Prediksi_Obesity import run_prediction_app
 
 # Initialize session state
@@ -22,8 +23,7 @@ else:
     page = st.session_state.get('page')
 
     if user_role == "Admin":
-        from Admin import admin_page_
-        admin_page_()
+        run_admin_page()
     else:  # For regular users
         if page == "riwayat":
             current_user_id = st.session_state.get('user_id')
