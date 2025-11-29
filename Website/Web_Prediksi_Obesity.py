@@ -207,7 +207,7 @@ class Model_Prediksi:
             
             # Load Model
             self.model = CatBoostClassifier()
-            self.model.load_model(os.path.join(model_dir, "CatBoost_Model.cbm"))
+            self.model.load_model(os.path.join(model_dir, "CatBoost_Obesity_Model.cbm"))
             
             # Load Metadata
             self.encoders[TARGET_NAME] = joblib.load(os.path.join(model_dir, "Y_Processed.pkl"))

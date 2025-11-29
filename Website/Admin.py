@@ -3,11 +3,14 @@ import pandas as pd
 import numpy as np
 
 import os
-import seaborn as sns
-from matplotlib import pyplot as plt
 from Role import Role
-from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc
 from sklearn.preprocessing import label_binarize
+
+# Plotly for interactive charts
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
 
 # Import Class User (Parent Class)
 from User import User
@@ -62,11 +65,22 @@ class Admin(User):
         
         with c2:
             st.subheader("Distribusi Kelas")
-            fig, ax = plt.subplots(figsize=(6, 4))
-            sns.barplot(x=class_counts.index, y=class_counts.values, palette='mako', ax=ax)
-            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
-            ax.set_ylabel('Count')
-            st.pyplot(fig)
+            fig = px.bar(
+                class_counts,
+                x=class_counts.index, 
+                y=class_counts.values,
+                labels={'x': 'Kelas Obesitas', 'y': 'Jumlah'},
+                color=class_counts.index,
+                text_auto=True
+            )
+            fig.update_layout(
+                showlegend=False,
+                xaxis_title="Kelas",
+                yaxis_title="Jumlah",
+                xaxis_tickangle=-45
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
 
         st.subheader("Preview Data")
         st.dataframe(df.head(100), use_container_width=True)
@@ -75,18 +89,34 @@ class Admin(User):
     # FITUR 2: EVALUASI MODEL
     # --------------------------------------------------------------------------
     def _evaluate_and_display(self, model, encoder, ALL_FEATURES, df_features, y_true, label_prefix=""):
+        from sklearn.preprocessing import LabelEncoder
+        from itertools import cycle
+
         # Helper internal untuk menghitung metrik
+        
+        # HOTFIX: Buat encoder lokal untuk memastikan konsistensi
+        le = LabelEncoder()
+        try:
+            # Asumsi encoder adalah objek encoder sklearn
+            le.classes_ = np.sort(np.unique(encoder.classes_))
+        except AttributeError:
+            # Fallback jika encoder adalah array/list dari nama kelas
+            le.classes_ = np.sort(np.unique(np.array(encoder)))
+
         try:
             proba = model.predict_proba(df_features)
             y_pred_idx = np.argmax(proba, axis=1)
         except Exception:
             y_pred = model.predict(df_features)
             try:
-                y_pred_idx = encoder.transform(y_pred)
+                # Pastikan input untuk transform adalah 1D array
+                y_pred_idx = le.transform(np.array(y_pred).ravel())
             except Exception:
-                y_pred_idx = np.array(y_pred)
+                # Fallback jika y_pred sudah berupa index numerik
+                y_pred_idx = np.array(y_pred).ravel()
 
-        y_true_idx = encoder.transform(y_true)
+        # Transform y_true (dari CSV) menjadi index numerik
+        y_true_idx = le.transform(np.array(y_true).ravel())
 
         # Metrics
         acc = accuracy_score(y_true_idx, y_pred_idx)
@@ -101,37 +131,95 @@ class Admin(User):
         col3.metric("Recall", f"{rec:.4f}")
         col4.metric("F1-Score", f"{f1:.4f}")
 
-        # Confusion Matrix
+        # Confusion Matrix (dengan Plotly)
         st.subheader(f"{label_prefix} Confusion Matrix")
-        cm = confusion_matrix(y_true_idx, y_pred_idx)
-        fig, ax = plt.subplots(figsize=(6, 5))
-        sns.heatmap(cm, annot=True, fmt='d', xticklabels=encoder.classes_, yticklabels=encoder.classes_, cmap='Blues', ax=ax)
-        plt.xticks(rotation=45, ha='right')
-        st.pyplot(fig)
+        cm = confusion_matrix(y_true_idx, y_pred_idx, labels=np.arange(len(le.classes_)))
+        
+        x = le.classes_.tolist()
+        y = le.classes_.tolist()
+        z_text = [[str(y) for y in x] for x in cm]
+        
+        fig_cm = ff.create_annotated_heatmap(
+            np.flipud(cm), # flip untuk orientasi yg benar
+            x=x, 
+            y=y[::-1], # flip untuk orientasi yg benar
+            annotation_text=np.flipud(z_text),
+            colorscale='Blues'
+        )
+        fig_cm.update_layout(
+            xaxis_title="Predicted Label",
+            yaxis_title="True Label",
+            xaxis=dict(fixedrange=True),
+            yaxis=dict(fixedrange=True)
+        )
+        st.plotly_chart(fig_cm, use_container_width=True, config={'displayModeBar': False})
 
-        # ROC Curve
-        st.subheader(f"{label_prefix} ROC Curve")
+
+        # ROC Curve & AUC
         try:
-            y_true_bin = label_binarize(y_true_idx, classes=np.arange(len(encoder.classes_)))
+            y_true_bin = label_binarize(y_true_idx, classes=np.arange(len(le.classes_)))
             n_classes = y_true_bin.shape[1]
-            fpr, tpr, roc_auc = dict(), dict(), dict()
             
-            fig_roc, ax_roc = plt.subplots(figsize=(8, 6))
-            colors = plt.cycler(color=plt.cm.viridis(np.linspace(0, 1, n_classes))) # type: ignore
-            ax_roc.set_prop_cycle(colors)
+            fpr = dict()
+            tpr = dict()
+            roc_auc = dict()
 
             for i in range(n_classes):
-                fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], proba[:, i]) # type: ignore
+                fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], proba[:, i]) #type: ignore
                 roc_auc[i] = auc(fpr[i], tpr[i])
-                ax_roc.plot(fpr[i], tpr[i], lw=2, label=f'Class {encoder.classes_[i]} (AUC={roc_auc[i]:.2f})')
 
-            ax_roc.plot([0, 1], [0, 1], 'k--', lw=2)
-            ax_roc.set_xlabel('False Positive Rate')
-            ax_roc.set_ylabel('True Positive Rate')
-            ax_roc.legend(loc="lower right")
-            st.pyplot(fig_roc)
+            # --- Tampilkan AUC Scores ---
+            st.subheader(f"{label_prefix} AUC Score (One-vs-Rest)")
+            
+            # Buat dataframe untuk menampilkan skor AUC
+            auc_data = {'Class': [le.classes_[i] for i in range(n_classes)],
+                        'AUC Score': [roc_auc[i] for i in range(n_classes)]}
+            auc_df = pd.DataFrame(auc_data)
+
+            # Tambahkan rata-rata macro
+            if n_classes > 0:
+                macro_avg_auc = np.mean(list(roc_auc.values()))
+                # Create a new DataFrame for the average row
+                avg_row = pd.DataFrame([{'Class': 'Macro Average', 'AUC Score': macro_avg_auc}])
+                # Concatenate the original DataFrame with the average row
+                auc_df = pd.concat([auc_df, avg_row], ignore_index=True)
+
+            # Tampilkan menggunakan st.dataframe dengan format
+            st.dataframe(
+                auc_df.style.format({'AUC Score': '{:.4f}'}),
+                use_container_width=True,
+                hide_index=True
+            )
+            # --- Tampilkan ROC Curves ---
+            st.subheader(f"{label_prefix} ROC Curve (One-vs-Rest)")
+            # Buat plot terpisah untuk setiap kelas
+            for i in range(n_classes):
+                class_name = le.classes_[i]
+                fig_roc_class = go.Figure()
+
+                fig_roc_class.add_trace(go.Scatter(
+                    x=fpr[i], y=tpr[i],
+                    mode='lines',
+                    line=dict(width=3),
+                    name=f'AUC = {roc_auc[i]:.2f}'
+                ))
+
+                fig_roc_class.add_shape(type='line', line=dict(dash='dash'), x0=0, x1=1, y0=0, y1=1)
+
+                fig_roc_class.update_layout(
+                    title=f'ROC Curve for: <b>{class_name}</b>',
+                    xaxis_title='False Positive Rate',
+                    yaxis_title='True Positive Rate',
+                    legend=dict(yanchor="bottom", y=0.01, xanchor="right", x=0.99),
+                    xaxis=dict(fixedrange=True),
+                    yaxis=dict(fixedrange=True)
+                )
+                st.plotly_chart(fig_roc_class, use_container_width=True, config={'displayModeBar': False})
+
         except Exception as e:
-            st.warning(f"Gagal membuat ROC: {e}")
+            st.warning(f"Gagal membuat ROC curve atau AUC Score: {e}")
+            import traceback
+            st.text(traceback.format_exc())
 
     def view_model_performance(self):
         """Menampilkan evaluasi kinerja model."""
@@ -163,13 +251,19 @@ class Admin(User):
             
             with tab2:
                 self._evaluate_and_display(model_obj.model, model_obj.encoders[TARGET_NAME], model_obj.feature_names, X_test, y_test, "Test")
-            
+                
             with tab3:
                 st.write("Parameter Model:")
-                try:
-                    st.json(model_obj.model.get_all_params()) # type: ignore
-                except:
-                    st.write(str(model_obj.model))
+                st.code("""
+                    cat_features=categorical_features,
+                    loss_function='MultiClass',
+                    eval_metric='Accuracy',
+                    learning_rate=0.03,
+                    random_state=42,
+                    iterations=1000,
+                    depth=4,
+                    l2_leaf_reg=5
+                """, language='python')
 
         except Exception as e:
             st.error(f"Error memuat data evaluasi: {e}")
