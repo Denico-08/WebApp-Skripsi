@@ -23,11 +23,12 @@ from config import (
 # Import Helper XAI (Langsung Function)
 from XAI.dice_helpers import (
     decode_dice_dataframe, get_dice_recommendations, 
-    summarize_dice_changes)
+    summarize_dice_changes, get_next_target_class, get_step_description)
 from XAI.lime_helpers import (
     initialize_lime_explainer, 
     predict_proba_catboost_for_lime, 
-    generate_lime_explanation_text, get_step_description, get_next_target_class
+    generate_lime_explanation_text,
+    generate_lime_barchart
 )
 
 # ==============================================================================
@@ -441,9 +442,17 @@ def run_prediction_app():
                         hasil.kategori_berat,
                         hasil.data_input.Get_raw_Data()
                     )
+
+                    barchart_base64 = generate_lime_barchart(
+                        lime_exp,
+                        pred_idx,
+                        hasil.data_input.Get_raw_Data()
+                    )
                     
                     # Tampilkan
-                    st.pyplot(lime_exp.as_pyplot_figure(label=pred_idx))
+                    if barchart_base64:
+                        st.image(barchart_base64)
+
                     st.info(lime_text)
                     
                     # Simpan Faktor Dominan ke DB

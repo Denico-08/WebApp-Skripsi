@@ -7,6 +7,9 @@ import numpy as np
 import pandas as pd
 from lime.lime_tabular import LimeTabularExplainer
 import re
+import matplotlib.pyplot as plt
+import io
+import base64
 
 class LimeHelper:
 
@@ -239,145 +242,194 @@ class LimeHelper:
 
         return "\n\n---\n\n".join(final_text_parts)
 
-    def get_next_target_class(self, current_class, class_names):
-        """
-        Menentukan kelas target berikutnya dalam hirarki obesitas (untuk rekomendasi).
-        """
-        # Tentukan hirarki yang akan digunakan
-        if current_class == 'Insufficient_Weight':
-            active_hierarchy = [c for c in OBESITY_GAIN_HIERARCHY if c in class_names]
-        elif current_class in OBESITY_REDUCTION_HIERARCHY:
-            active_hierarchy = [c for c in OBESITY_REDUCTION_HIERARCHY if c in class_names]
-        else:
-            # Jika kelas saat ini adalah Normal_Weight atau tidak ada di hirarki
-            return current_class, True, [current_class]
+def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
 
-        # Temukan posisi saat ini di hirarki aktif
+    FEATURE_TRANSLATIONS = {
+        'Age': 'Umur',
+        'Gender': 'Jenis kelamin',
+        'Height': 'Tinggi badan',
+        'Weight': 'Berat badan',
+        'family_history_with_overweight': 'Riwayat keluarga obesitas',
+        'FAVC': 'Konsumsi makanan tinggi kalori',
+        'NCP': 'Jadwal makan utama',
+        'CAEC': 'Kebiasaan ngemil',
+        'SMOKE': 'Status merokok',
+        'CH2O': 'Konsumsi air putih',
+        'SCC': 'Pemantauan kalori',
+        'FAF': 'Aktivitas fisik',
+        'TUE': 'Penggunaan gawai',
+        'CALC': 'Konsumsi alkohol',
+        'MTRANS': 'Transportasi utama',
+        'FCVC': 'Konsumsi sayuran',
+    }
+
+    DECODERS = {
+        'CH2O': {1: 'Kurang (<1L)', 2: 'Cukup (1-2L)', 3: '>2L'},
+        'FCVC': {1: 'Jarang', 2: 'Kadang-kadang', 3: 'Sering/Selalu'},
+        'NCP': {1: '1x sehari', 2: '2x sehari', 3: '3x sehari', 4: 'Lebih dari 3x'},
+        'FAF': {0: 'Tidak ada', 1: 'Ringan (1-2 hari)', 2: 'Sedang (3-4 hari)', 3: 'Rutin/Tinggi'},
+        'TUE': {0: 'Rendah (0-2 jam)', 1: 'Sedang (3-5 jam)', 2: 'Tinggi (>5 jam)'},
+        'CAEC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'},
+        'CALC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'}
+    }
+    
+    try:
+        explanation_list = lime_exp.as_list(label=predicted_class_index)
+    except IndexError:
+        return []
+        
+    formatted_features = []
+    known_keys = sorted(FEATURE_TRANSLATIONS.keys(), key=len, reverse=True)
+
+    for feature_string, weight in explanation_list:
+        label = feature_string # Fallback
         try:
-            current_index = active_hierarchy.index(current_class)
-        except ValueError:
-            return current_class, True, [current_class] # Fallback jika tidak ditemukan
-
-        # Target selalu 'Normal_Weight'
-        NORMAL_WEIGHT_CLASS = 'Normal_Weight'
-        
-        # Periksa apakah sudah mencapai atau melewati target
-        if current_class == NORMAL_WEIGHT_CLASS:
-            return current_class, True, [current_class]
-        
-        # Tentukan path dan target berikutnya
-        if current_index < len(active_hierarchy) - 1:
-            next_class = active_hierarchy[current_index + 1]
+            feature_name = None
+            for key in known_keys:
+                if key in feature_string:
+                    feature_name = key
+                    break
             
-            # Buat path lengkap dari posisi saat ini ke Normal_Weight
-            try:
-                normal_index_in_hierarchy = active_hierarchy.index(NORMAL_WEIGHT_CLASS)
-                all_steps = active_hierarchy[current_index : normal_index_in_hierarchy + 1]
-            except ValueError:
-                all_steps = [current_class, next_class]
+            if not feature_name: 
+                formatted_features.append((label, weight))
+                continue
 
-            is_final = (next_class == NORMAL_WEIGHT_CLASS)
+            raw_value = user_input_raw.get(feature_name)
+            if raw_value is None: 
+                formatted_features.append((label, weight))
+                continue
+
+            # Simplified sentence logic for chart labels
+            if feature_name in ['Age', 'Weight']:
+                label = f"{FEATURE_TRANSLATIONS[feature_name]}: {int(float(raw_value))}"
+                if feature_name == 'Weight': label += " kg"
             
-            return next_class, is_final, all_steps
-        else:
-            # Sudah di ujung hirarki (seharusnya Normal_Weight)
-            return current_class, True, [current_class]
+            elif feature_name == 'Height':
+                h_val = float(raw_value)
+                if h_val < 3.0: h_val *= 100
+                label = f"{FEATURE_TRANSLATIONS[feature_name]}: {int(h_val)} cm"
 
-    def get_step_description(self, current_class, next_class, step_number, total_steps):
-
-        return f"**Step {step_number}/{total_steps}**: {current_class.replace('_', ' ')} → {next_class.replace('_', ' ')}"
-
-    def generate_lime_weights(self, lime_exp, predicted_class_index, user_input_raw):
-
-        FEATURE_TRANSLATIONS = {
-            'Age': 'Umur',
-            'Gender': 'Jenis kelamin',
-            'Height': 'Tinggi badan',
-            'Weight': 'Berat badan',
-            'family_history_with_overweight': 'Riwayat keluarga obesitas',
-            'FAVC': 'Konsumsi makanan tinggi kalori',
-            'NCP': 'Jadwal makan utama',
-            'CAEC': 'Kebiasaan ngemil',
-            'SMOKE': 'Status merokok',
-            'CH2O': 'Konsumsi air putih',
-            'SCC': 'Pemantauan kalori',
-            'FAF': 'Aktivitas fisik',
-            'TUE': 'Penggunaan gawai',
-            'CALC': 'Konsumsi alkohol',
-            'MTRANS': 'Transportasi utama',
-            'FCVC': 'Konsumsi sayuran',
-        }
-
-        DECODERS = {
-            'CH2O': {1: 'Kurang (<1L)', 2: 'Cukup (1-2L)', 3: '>2L'},
-            'FCVC': {1: 'Jarang', 2: 'Kadang-kadang', 3: 'Sering/Selalu'},
-            'NCP': {1: '1x sehari', 2: '2x sehari', 3: '3x sehari', 4: 'Lebih dari 3x'},
-            'FAF': {0: 'Tidak ada', 1: 'Ringan (1-2 hari)', 2: 'Sedang (3-4 hari)', 3: 'Rutin/Tinggi'},
-            'TUE': {0: 'Rendah (0-2 jam)', 1: 'Sedang (3-5 jam)', 2: 'Tinggi (>5 jam)'},
-            'CAEC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'},
-            'CALC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'}
-        }
-        
-        try:
-            explanation_list = lime_exp.as_list(label=predicted_class_index)
-        except IndexError:
-            return []
-            
-        formatted_features = []
-        known_keys = sorted(FEATURE_TRANSLATIONS.keys(), key=len, reverse=True)
-
-        for feature_string, weight in explanation_list:
-            label = feature_string # Fallback
-            try:
-                feature_name = None
-                for key in known_keys:
-                    if key in feature_string:
-                        feature_name = key
-                        break
+            elif feature_name in DECODERS:
+                raw_key = raw_value
+                if isinstance(raw_key, float): raw_key = int(raw_key)
                 
-                if not feature_name: 
-                    formatted_features.append((label, weight))
-                    continue
-
-                raw_value = user_input_raw.get(feature_name)
-                if raw_value is None: 
-                    formatted_features.append((label, weight))
-                    continue
-
-                # Simplified sentence logic for chart labels
-                if feature_name in ['Age', 'Weight']:
-                    label = f"{FEATURE_TRANSLATIONS[feature_name]}: {int(float(raw_value))}"
-                    if feature_name == 'Weight': label += " kg"
-                
-                elif feature_name == 'Height':
-                    h_val = float(raw_value)
-                    if h_val < 3.0: h_val *= 100
-                    label = f"{FEATURE_TRANSLATIONS[feature_name]}: {int(h_val)} cm"
-
-                elif feature_name in DECODERS:
-                    raw_key = raw_value
-                    if isinstance(raw_key, float): raw_key = int(raw_key)
-                    
-                    decoded_val = DECODERS[feature_name].get(str(raw_key), str(raw_key))
-                    label = f"{FEATURE_TRANSLATIONS[feature_name]}: {decoded_val}"
-                
-                elif feature_name in ['family_history_with_overweight', 'FAVC', 'SMOKE', 'SCC']:
-                    val_str = 'Ya' if str(raw_value).lower() == 'yes' else 'Tidak'
-                    base_label = FEATURE_TRANSLATIONS[feature_name]
-                    if base_label.startswith('Anda'): # "Anda mengonsumsi..." -> "Konsumsi..."
-                         base_label = base_label.split(' ', 1)[1]
-                    label = f"{base_label.capitalize()}: {val_str}"
-
-                else:
-                    # Fallback for other categoricals like MTRANS
-                    label = f"{FEATURE_TRANSLATIONS.get(feature_name, feature_name)}: {str(raw_value).replace('_', ' ')}"
-
-            except Exception:
-                pass # Use fallback label if formatting fails
+                decoded_val = DECODERS[feature_name].get(str(raw_key), str(raw_key))
+                label = f"{FEATURE_TRANSLATIONS[feature_name]}: {decoded_val}"
             
-            formatted_features.append((label, weight))
-            
-        return formatted_features
+            elif feature_name in ['family_history_with_overweight', 'FAVC', 'SMOKE', 'SCC']:
+                val_str = 'Ya' if str(raw_value).lower() == 'yes' else 'Tidak'
+                base_label = FEATURE_TRANSLATIONS[feature_name]
+                if base_label.startswith('Anda'): # "Anda mengonsumsi..." -> "Konsumsi..."
+                     base_label = base_label.split(' ', 1)[1]
+                label = f"{base_label.capitalize()}: {val_str}"
+
+            else:
+                # Fallback for other categoricals like MTRANS
+                label = f"{FEATURE_TRANSLATIONS.get(feature_name, feature_name)}: {str(raw_value).replace('_', ' ')}"
+
+        except Exception:
+            pass # Use fallback label if formatting fails
+        
+        formatted_features.append((label, weight))
+        
+    return formatted_features
+
+def generate_lime_barchart(lime_exp, predicted_class_index, user_input_raw):
+    """
+    Generates a bar chart from LIME weights and returns it as a base64 encoded string.
+    """
+    
+    # Dapatkan fitur dan bobot yang sudah diformat
+    formatted_features = generate_lime_weights(lime_exp, predicted_class_index, user_input_raw)
+    
+    # Urutkan berdasarkan nilai absolut bobot untuk efek visual
+    features_to_plot = sorted(formatted_features, key=lambda x: abs(x[1]), reverse=True)[:7]
+    if not features_to_plot:
+        return None
+
+    # Balikkan urutan agar yang paling penting muncul di atas untuk plot horizontal
+    features_to_plot.reverse()
+
+    labels = [f[0] for f in features_to_plot]
+    weights = [f[1] for f in features_to_plot]
+
+    # Desain Lolipop dengan tema gelap
+    try:
+        plt.style.use('dark_background')
+    except:
+        # Fallback jika style tidak ada
+        pass
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Warna kontras tinggi
+    colors = ['#FF8C00' if w < 0 else '#00BFFF' for w in weights]
+    
+    y_pos = np.arange(len(labels))
+
+    # Garis horizontal (stick lolipop)
+    ax.hlines(y=y_pos, xmin=0, xmax=weights, color=colors, alpha=0.8, linewidth=2)
+    
+    # Titik di ujung (kepala lolipop)
+    ax.scatter(weights, y_pos, color=colors, s=150, alpha=1, zorder=3)
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=12, color='white')
+    ax.invert_yaxis()
+
+    ax.set_xlabel('Pengaruh pada Prediksi (Bobot LIME)', fontsize=14, fontweight='bold', color='white')
+    ax.set_title('Analisis Faktor Dominan (LIME)', fontsize=18, fontweight='bold', color='white', pad=20)
+    
+    # Batas sumbu x kustom
+    min_weight = min(weights) if any(w < 0 for w in weights) else 0
+    max_weight = max(weights) if any(w > 0 for w in weights) else 0
+    
+    # Tentukan batas kiri: minimal -0.1, atau lebih rendah jika ada bobot yang sangat negatif
+    left_limit = min(-0.1, min_weight - abs(min_weight * 0.1))
+    
+    # Tentukan batas kanan: padding setelah bobot positif terbesar
+    right_limit = max_weight + abs(max_weight * 0.1)
+    
+    # Pastikan ada ruang jika semua bobot negatif atau positif
+    if max_weight <= 0: right_limit = 0.01
+    if min_weight >= 0: left_limit = -0.01
+    
+    ax.set_xlim(left_limit, right_limit)
+
+    # Garis nol vertikal
+    ax.axvline(0, color='lightgrey', linewidth=1.2, linestyle='--')
+    
+    # Kustomisasi grid dan spines
+    ax.grid(axis='x', linestyle='--', alpha=0.3)
+    ax.grid(axis='y', alpha=0.1)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color('lightgrey')
+    ax.spines['bottom'].set_color('lightgrey')
+
+    # Tambahkan label nilai di sebelah titik
+    for i, weight in enumerate(weights):
+        ax.text(weight, y_pos[i], f' {weight:.3f}', 
+                va='center', 
+                ha='left' if weight >= 0 else 'right', 
+                fontsize=10, 
+                color='white',
+                fontweight='medium')
+
+    plt.tight_layout(pad=2)
+
+    # Simpan plot ke buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+    plt.close(fig)
+    
+    # Kembali ke style default agar tidak mempengaruhi plot lain
+    plt.style.use('default')
+    
+    buf.seek(0)
+    image_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    
+    return f"data:image/png;base64,{image_base64}"
 
 # ==============================================================================
 # GLOBAL BRIDGE FUNCTIONS (Agar kompatibel dengan import di file lain)
@@ -394,12 +446,3 @@ def predict_proba_catboost_for_lime(data, model_obj, all_features_list):
 
 def generate_lime_explanation_text(lime_exp, predicted_class_index, predicted_class_name, user_input_raw):
     return lime_helper_instance.generate_explanation_text(lime_exp, predicted_class_index, predicted_class_name, user_input_raw)
-
-def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
-    return lime_helper_instance.generate_lime_weights(lime_exp, predicted_class_index, user_input_raw)
-
-def get_next_target_class(current_class, class_names):
-    return lime_helper_instance.get_next_target_class(current_class, class_names)
-
-def get_step_description(current_class, next_class, step_number, total_steps):
-    return lime_helper_instance.get_step_description(current_class, next_class, step_number, total_steps)
