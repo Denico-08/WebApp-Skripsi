@@ -225,14 +225,14 @@ class LimeHelper:
 
         # Bagian 1: Faktor Pendukung (Top 3)
         if supporting_features:
-            intro_support = f"##### Faktor Pendukung\nFaktor berikut **meningkatkan** kecenderungan Anda masuk kategori **{predicted_class_formatted}**:"
+            intro_support = f"##### Faktor yang Mendukung\nFaktor berikut **meningkatkan** kecenderungan Anda masuk kategori **{predicted_class_formatted}**:"
             supporting_sentences = format_sentences_from_features(supporting_features[:5], known_feature_keys)
             if supporting_sentences:
                 final_text_parts.append(intro_support + "\n" + "\n".join(supporting_sentences))
 
         # Bagian 2: Faktor Bertentangan (Top 2)
         if contradicting_features:
-            intro_contradict = f"##### Faktor Pegenndali\nNamun, faktor berikut membantu **menahan** kenaikan tingkat obesitas Anda (menjaga agar tidak lebih parah):"
+            intro_contradict = f"##### Faktor yang Menolak\nNamun, faktor berikut membantu **menahan** kenaikan tingkat obesitas Anda (menjaga agar tidak lebih parah):"
             contradicting_sentences = format_sentences_from_features(contradicting_features[:3], known_feature_keys)
             if contradicting_sentences:
                 final_text_parts.append(intro_contradict + "\n" + "\n".join(contradicting_sentences))
@@ -336,94 +336,103 @@ def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
 
 def generate_lime_barchart(lime_exp, predicted_class_index, user_input_raw):
     """
-    Generates a bar chart from LIME weights and returns it as a base64 encoded string.
+    Generates two separate bar charts for positive and negative LIME weights
+    and returns them as a single base64 encoded string, styled to match the example image.
     """
     
     # Dapatkan fitur dan bobot yang sudah diformat
     formatted_features = generate_lime_weights(lime_exp, predicted_class_index, user_input_raw)
     
-    # Urutkan berdasarkan nilai absolut bobot untuk efek visual
-    features_to_plot = sorted(formatted_features, key=lambda x: abs(x[1]), reverse=True)[:7]
-    if not features_to_plot:
+    if not formatted_features:
         return None
 
-    # Balikkan urutan agar yang paling penting muncul di atas untuk plot horizontal
-    features_to_plot.reverse()
+    # Pisahkan fitur dan batasi jumlahnya
+    supporting_features = sorted([f for f in formatted_features if f[1] > 0], key=lambda x: x[1])[-3:]
+    contradicting_features = sorted([f for f in formatted_features if f[1] < 0], key=lambda x: abs(x[1]))[-5:]
 
-    labels = [f[0] for f in features_to_plot]
-    weights = [f[1] for f in features_to_plot]
+    num_charts = (1 if supporting_features else 0) + (1 if contradicting_features else 0)
+    if num_charts == 0:
+        return None
 
-    # Desain Lolipop dengan tema gelap
     try:
         plt.style.use('dark_background')
-    except:
-        # Fallback jika style tidak ada
+    except Exception:
         pass
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig_height = 4 * num_charts
+    fig, axes = plt.subplots(num_charts, 1, figsize=(10, fig_height), squeeze=False)
+    fig.patch.set_facecolor('#0d1117') # Warna background gelap seperti di GitHub
 
-    # Warna kontras tinggi
-    colors = ['#FF8C00' if w < 0 else '#00BFFF' for w in weights]
-    
-    y_pos = np.arange(len(labels))
+    # Fungsi untuk memotong label panjang
+    def truncate_label(label, max_len=35):
+        return label if len(label) <= max_len else label[:max_len-3] + '...'
 
-    # Garis horizontal (stick lolipop)
-    ax.hlines(y=y_pos, xmin=0, xmax=weights, color=colors, alpha=0.8, linewidth=2)
-    
-    # Titik di ujung (kepala lolipop)
-    ax.scatter(weights, y_pos, color=colors, s=150, alpha=1, zorder=3)
+    current_ax_index = 0
 
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(labels, fontsize=12, color='white')
-    ax.invert_yaxis()
+    # Chart 1: Faktor Pendukung
+    if supporting_features:
+        ax = axes[current_ax_index, 0]
+        ax.set_facecolor('#0d1117')
+        
+        labels = [truncate_label(f[0]) for f in supporting_features]
+        weights = [f[1] for f in supporting_features]
+        
+        y_pos = np.arange(len(labels))
+        ax.barh(y_pos, weights, color='#28a745', height=0.6)
+        
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(labels, fontsize=11, color='white')
+        ax.invert_yaxis() # Tampilkan yang paling penting di atas
 
-    ax.set_xlabel('Pengaruh pada Prediksi (Bobot LIME)', fontsize=14, fontweight='bold', color='white')
-    ax.set_title('Analisis Faktor Dominan (LIME)', fontsize=18, fontweight='bold', color='white', pad=20)
-    
-    # Batas sumbu x kustom
-    min_weight = min(weights) if any(w < 0 for w in weights) else 0
-    max_weight = max(weights) if any(w > 0 for w in weights) else 0
-    
-    # Tentukan batas kiri: minimal -0.1, atau lebih rendah jika ada bobot yang sangat negatif
-    left_limit = min(-0.1, min_weight - abs(min_weight * 0.1))
-    
-    # Tentukan batas kanan: padding setelah bobot positif terbesar
-    right_limit = max_weight + abs(max_weight * 0.1)
-    
-    # Pastikan ada ruang jika semua bobot negatif atau positif
-    if max_weight <= 0: right_limit = 0.01
-    if min_weight >= 0: left_limit = -0.01
-    
-    ax.set_xlim(left_limit, right_limit)
+        ax.set_title('Faktor Pendukung (Meningkatkan Probabilitas)', fontsize=14, fontweight='bold', color='white', pad=20)
+        ax.set_xlabel('Bobot (Weight)', fontsize=12, color='white')
+        ax.set_ylabel('Faktor', fontsize=12, color='white')
+        
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white', length=0)
+        
+        ax.set_xlim(0, max(weights) * 1.15 if weights else 0.1)
+        
+        current_ax_index += 1
 
-    # Garis nol vertikal
-    ax.axvline(0, color='lightgrey', linewidth=1.2, linestyle='--')
+    # Chart 2: Faktor Kontradiktif
+    if contradicting_features:
+        ax = axes[current_ax_index, 0]
+        ax.set_facecolor('#0d1117')
+
+        labels = [truncate_label(f[0]) for f in contradicting_features]
+        weights = [abs(f[1]) for f in contradicting_features]
+
+        y_pos = np.arange(len(labels))
+        ax.barh(y_pos, weights, color='#dc3545', height=0.6)
+
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(labels, fontsize=11, color='white')
+        ax.invert_yaxis()
+
+        ax.set_title('Faktor Kontradiktif (Menurunkan Probabilitas)', fontsize=14, fontweight='bold', color='white', pad=20)
+        ax.set_xlabel('Bobot (Weight)', fontsize=12, color='white')
+        ax.set_ylabel('Faktor', fontsize=12, color='white')
+        
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white', length=0)
+        
+        ax.set_xlim(0, max(weights) * 1.15 if weights else 0.1)
+
+    # Kustomisasi global
+    for ax in axes.flat:
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#444')
+        ax.spines['bottom'].set_color('#444')
+        ax.grid(axis='x', linestyle='--', alpha=0.2)
+
+    plt.subplots_adjust(hspace=0.8) # Tambah ruang vertikal antar chart
     
-    # Kustomisasi grid dan spines
-    ax.grid(axis='x', linestyle='--', alpha=0.3)
-    ax.grid(axis='y', alpha=0.1)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('lightgrey')
-    ax.spines['bottom'].set_color('lightgrey')
-
-    # Tambahkan label nilai di sebelah titik
-    for i, weight in enumerate(weights):
-        ax.text(weight, y_pos[i], f' {weight:.3f}', 
-                va='center', 
-                ha='left' if weight >= 0 else 'right', 
-                fontsize=10, 
-                color='white',
-                fontweight='medium')
-
-    plt.tight_layout(pad=2)
-
-    # Simpan plot ke buffer
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=fig.get_facecolor())
     plt.close(fig)
     
-    # Kembali ke style default agar tidak mempengaruhi plot lain
     plt.style.use('default')
     
     buf.seek(0)

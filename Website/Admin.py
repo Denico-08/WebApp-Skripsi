@@ -313,10 +313,10 @@ class Admin(User):
             if st.button('🚪 Logout Admin', use_container_width=True):
                 self.logout() # Memanggil method dari Parent Class User
 
-        st.title('🔐 Halaman Administrator')
+        st.title('Halaman Administrator')
         
         # Tab Navigasi
-        tabs = st.tabs(["📊 Statistik Dataset", "🤖 Evaluasi Model", "👥 Manajemen User"])
+        tabs = st.tabs(["Statistik Dataset", "Evaluasi Model", "Manajemen User"])
 
         with tabs[0]:
             self.view_dataset_stats()

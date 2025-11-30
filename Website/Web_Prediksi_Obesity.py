@@ -149,11 +149,12 @@ class InputData:
 # 3. CLASS HASIL PREDIKSI
 # ==============================================================================
 class Hasil_Prediksi:
-    def __init__(self, kategori_berat: str, probabilitas: float, data_input: InputData):
+    def __init__(self, kategori_berat: str, probabilitas: float, data_input: InputData, full_probabilities: list = None): #type: ignore
         self.id = None 
         self.kategori_berat = kategori_berat
         self.probabilitas = probabilitas
         self.data_input = data_input
+        self.full_probabilities = full_probabilities if full_probabilities is not None else []
         # Atribut tambahan untuk menyimpan hasil analisis sementara (opsional)
         self.lime_explanation = None
         self.dice_recommendation = None
@@ -233,11 +234,17 @@ class Model_Prediksi:
         predicted_class = self.encoders[TARGET_NAME].classes_[predicted_class_index]
         prediction_probability = prediction_proba[0][predicted_class_index]
         
-        # 4. Return Object
+        # 4. Kumpulkan semua probabilitas
+        all_probs = prediction_proba[0]
+        class_names = self.class_names
+        full_probabilities = sorted(zip(class_names, all_probs), key=lambda item: item[1], reverse=True)
+
+        # 5. Return Object
         return Hasil_Prediksi(
             kategori_berat=predicted_class,
             probabilitas=float(prediction_probability),
-            data_input=data
+            data_input=data,
+            full_probabilities=full_probabilities
         )
 
 @st.cache_resource
@@ -407,6 +414,19 @@ def run_prediction_app():
         c1, c2 = st.columns([2,1])
         with c1: st.success(f"**Hasil:** {hasil.Display_Result()}")
         with c2: st.info(f"**Probabilitas:** {hasil.probabilitas:.2%}")
+
+        # Menampilkan tabel probabilitas semua kategori
+        st.subheader("Probabilitas Semua Kategori")
+        try:
+            if hasattr(hasil, 'full_probabilities') and hasil.full_probabilities:
+                df_probs = pd.DataFrame(hasil.full_probabilities, columns=['Kategori', 'Probabilitas'])
+                df_probs['Kategori'] = df_probs['Kategori'].str.replace('_', ' ')
+                df_probs['Probabilitas'] = df_probs['Probabilitas'].apply(lambda x: f"{x:.2%}")
+                st.dataframe(df_probs.style.highlight_max(axis=0, props='font-weight: normal'), use_container_width=True)
+            else:
+                st.warning("Data probabilitas lengkap tidak ditemukan. Silakan klik 'Prediksi Sekarang' lagi untuk membuat hasil baru.")
+        except Exception as e:
+            st.error(f"Gagal menampilkan tabel probabilitas: {e}")
 
         # XAI Section
         st.markdown("### Analisis Lanjutan")
