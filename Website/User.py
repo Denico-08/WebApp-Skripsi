@@ -18,7 +18,6 @@ class User:
     def login_action(self) -> bool:
         """Logika autentikasi ke Supabase."""
         if not self.email or not self.password:
-            st.error("Email dan password harus diisi")
             return False
         
         try:
@@ -45,21 +44,17 @@ class User:
                 return True
             return False
         except Exception as e:
-            st.error(f"Error saat login: {str(e)}")
             return False
 
     def register_action(self, confirm_password: str) -> bool:
         """Logika pendaftaran pengguna baru."""
         if not all([self.email, self.name, self.password, confirm_password]):
-            st.error("Semua field harus diisi.")
             return False
 
         if self.password != confirm_password:
-            st.error("Password tidak cocok.")
             return False
         
         if len(self.password) < 6: #type: ignore
-            st.error("Password minimal 6 karakter.")
             return False
 
         try:
@@ -75,7 +70,6 @@ class User:
                 supabase.table("User").insert(insert_data).execute()
                 return True
             else:
-                st.error("Pendaftaran gagal.")
                 return False
         except Exception as e:
             st.error(f"Error register: {e}")
@@ -196,7 +190,7 @@ class User:
                     st.success(f"Login berhasil! Halo {st.session_state.user_name}")
                     st.rerun()
                 else:
-                    st.error("Login gagal.")
+                    st.error("Login Tidak Valid")
         
         st.markdown("---")
         if st.button("Daftar Akun Baru"):
@@ -214,13 +208,15 @@ class User:
         with st.form("signup_form"):
             email = st.text_input("Email")
             name = st.text_input("Nama Lengkap")
-            password = st.text_input("Password", type="password")
+            password = st.text_input("Password 6 karakter", type="password")
             confirm = st.text_input("Konfirmasi Password", type="password")
             
             if st.form_submit_button("Daftar", use_container_width=True):
                 user = User(email=email, password=password, name=name)
                 if user.register_action(confirm):
-                    st.success("Berhasil! Silakan login.")
+                    st.success("Sign Up Berhasil")
+                else:
+                    st.error("Pendaftaran Tidak Valid")
 
     def render_history_page(self):
         """Tampilan Halaman History User yang lebih informatif."""
@@ -296,4 +292,4 @@ class User:
                     st.write(row) 
 
         else:
-            st.info("Belum ada riwayat prediksi.")
+            st.info("Mohon melakukan prediksi terlebih dahulu")

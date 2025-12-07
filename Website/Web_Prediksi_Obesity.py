@@ -309,9 +309,9 @@ def run_prediction_app():
     with col1:
         st.subheader("Data Pribadi")
         gender = st.selectbox('Gender', list(GENDER_MAP.keys()))
-        age = st.number_input('Umur', 1, 100, 25)
-        height = st.number_input('Tinggi (cm)', 100, 250, 170)
-        weight = st.number_input('Berat (kg)', 30, 200, 70)
+        age = st.number_input('Umur', 0, 100, 25)
+        height = st.number_input('Tinggi (cm)', 0, 250, 170)
+        weight = st.number_input('Berat (kg)', 0, 200, 70)
         family = st.selectbox(
             'Riwayat keluarga obesitas?', 
             list(FAMILY_HISTORY_MAP.keys()),
@@ -382,30 +382,35 @@ def run_prediction_app():
     # Prediksi
     st.markdown("---")
     if st.button("Prediksi Sekarang", type="primary", use_container_width=True):
-        try:
-            # Create Input Object
-            input_data = InputData(
-                Age=int(age), Gender=str(gender), Height=float(height)/100.0, Weight=float(weight),
-                family_history_with_overweight=str(family), FAVC=str(favc), FCVC=float(fcvc),
-                NCP=float(ncp), CAEC=str(caec), SMOKE=str(smoke), CH2O=float(ch2o), SCC=str(scc),
-                FAF=float(faf), TUE=float(tue), CALC=str(calc), MTRANS=str(mtrans)
-            )
-            
-            # Predict
-            hasil = model.predict(input_data)
-            
-            if hasil:
-                st.session_state.prediction_result = hasil
-                st.session_state.show_lime = False
-                st.session_state.show_dice = False
+        # Validasi Input
+        if not all([age > 0, height > 0, weight > 0]):
+            st.error("Input Data Tidak Valid")
+        else:
+            try:
+                # Create Input Object
+                input_data = InputData(
+                    Age=int(age), Gender=str(gender), Height=float(height)/100.0, Weight=float(weight),
+                    family_history_with_overweight=str(family), FAVC=str(favc), FCVC=float(fcvc),
+                    NCP=float(ncp), CAEC=str(caec), SMOKE=str(smoke), CH2O=float(ch2o), SCC=str(scc),
+                    FAF=float(faf), TUE=float(tue), CALC=str(calc), MTRANS=str(mtrans)
+                )
                 
-                # Save
-                user_id = st.session_state.get('user_id')
-                if user_id: hasil.Save_Result(user_id)
-                st.rerun()
+                # Predict
+                hasil = model.predict(input_data)
                 
-        except Exception as e:
-            st.error(f"Input Error: {e}")
+                if hasil:
+                    st.session_state.prediction_result = hasil
+                    st.session_state.show_lime = False
+                    st.session_state.show_dice = False
+                    
+                    # Save
+                    user_id = st.session_state.get('user_id')
+                    if user_id: hasil.Save_Result(user_id)
+                    st.rerun()
+                
+            except Exception as e:
+                st.error("Input Data Tidak Valid")
+
 
     # Result Display
     if st.session_state.prediction_result:
@@ -428,17 +433,28 @@ def run_prediction_app():
         except Exception as e:
             st.error(f"Gagal menampilkan tabel probabilitas: {e}")
 
-        # XAI Section
-        st.markdown("### Analisis Lanjutan")
-        col_xai1, col_xai2 = st.columns(2)
-        with col_xai1: 
-            if st.button("🔍 Analisis LIME"): st.session_state.show_lime=True; st.session_state.show_dice=False
-        with col_xai2:
-            if st.button("💡 Rekomendasi DiCE"): st.session_state.show_dice=True; st.session_state.show_lime=False
-
         # ------------------------------------------------------------------
         # LOGIKA LIME (LANGSUNG PAKAI FUNCTION IMPORT)
         # ------------------------------------------------------------------
+        st.markdown("### Analisis Lanjutan")
+        col_xai1, col_xai2 = st.columns(2)
+        with col_xai1: 
+            if st.button("Analisis Faktor Dominan"):
+                if not st.session_state.prediction_result:
+                    st.warning("Dapatkan Hasil Prediksi Terlebih Dahulu")
+                else:
+                    st.session_state.show_lime=True
+                    st.session_state.show_dice=False
+                    st.rerun()
+
+        with col_xai2:
+            if st.button("Rekomendasi Saran Perubahan"):
+                if not st.session_state.prediction_result:
+                    st.warning("Dapatkan Hasil Prediksi Terlebih Dahulu")
+                else:
+                    st.session_state.show_dice=True
+                    st.session_state.show_lime=False
+                    st.rerun()
         if st.session_state.show_lime:
             with st.spinner("Analyzing..."):
                 if lime_explainer:
