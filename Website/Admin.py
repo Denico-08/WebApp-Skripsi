@@ -37,7 +37,7 @@ class Admin(User):
     def _get_dataset_path(self):
         base = os.path.dirname(os.path.abspath(__file__))
         # Sesuaikan path ini dengan struktur folder Anda
-        dataset = r"C:\Users\LENOVO\Documents\DENICO\Skripsi\Python\Dataset\combined_dataset.csv"
+        dataset = r"C:\Users\LENOVO\Documents\DENICO\Skripsi\Python\Dataset\combined_df_trimmed.csv"
         return os.path.normpath(os.path.join(base,dataset))
 
     def view_dataset_stats(self):
@@ -92,16 +92,13 @@ class Admin(User):
         from sklearn.preprocessing import LabelEncoder
         from itertools import cycle
 
-        # Helper internal untuk menghitung metrik
+        # encoder sekarang adalah LabelEncoder yang sudah di-fit (dari y_label_encoder.pkl)
+        le = encoder
         
-        # HOTFIX: Buat encoder lokal untuk memastikan konsistensi
-        le = LabelEncoder()
-        try:
-            # Asumsi encoder adalah objek encoder sklearn
-            le.classes_ = np.sort(np.unique(encoder.classes_))
-        except AttributeError:
-            # Fallback jika encoder adalah array/list dari nama kelas
-            le.classes_ = np.sort(np.unique(np.array(encoder)))
+        # Validasi
+        if not hasattr(le, 'classes_'):
+            st.error("Encoder tidak valid. Harus memiliki atribut 'classes_'")
+            return
 
         try:
             proba = model.predict_proba(df_features)
@@ -109,10 +106,8 @@ class Admin(User):
         except Exception:
             y_pred = model.predict(df_features)
             try:
-                # Pastikan input untuk transform adalah 1D array
                 y_pred_idx = le.transform(np.array(y_pred).ravel())
             except Exception:
-                # Fallback jika y_pred sudah berupa index numerik
                 y_pred_idx = np.array(y_pred).ravel()
 
         # Transform y_true (dari CSV) menjadi index numerik
@@ -258,10 +253,10 @@ class Admin(User):
                     cat_features=categorical_features,
                     loss_function='MultiClass',
                     eval_metric='Accuracy',
-                    learning_rate=0.03,
+                    learning_rate=0.05,
                     random_state=42,
                     iterations=1000,
-                    depth=4,
+                    depth=6,
                     l2_leaf_reg=5
                 """, language='python')
 

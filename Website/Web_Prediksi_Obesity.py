@@ -16,7 +16,7 @@ from Connection.supabase_client import (
 
 from config import (
     TARGET_NAME, CONTINUOUS_COLS, ORDINAL_COLS,
-    GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP, SCC_MAP, SMOKE_MAP,
+    GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP,
     CAEC_MAP, CALC_MAP, MTRANS_MAP
 )
 
@@ -83,9 +83,7 @@ class InputData:
     FCVC: float
     NCP: float
     CAEC: str
-    SMOKE: str
     CH2O: float
-    SCC: str
     FAF: float
     TUE: float
     CALC: str
@@ -126,8 +124,6 @@ class InputData:
             df['Gender'] = df['Gender'].map(GENDER_MAP).astype(int)
             df['family_history_with_overweight'] = df['family_history_with_overweight'].map(FAMILY_HISTORY_MAP).astype(int)
             df['FAVC'] = df['FAVC'].map(FAVC_MAP).astype(int)
-            df['SCC'] = df['SCC'].map(SCC_MAP).astype(int)
-            df['SMOKE'] = df['SMOKE'].map(SMOKE_MAP).astype(int)
             df['CAEC'] = df['CAEC'].map(CAEC_MAP).astype(int)
             df['CALC'] = df['CALC'].map(CALC_MAP).astype(int)
             df['MTRANS'] = df['MTRANS'].map(MTRANS_MAP).astype(int)
@@ -208,10 +204,11 @@ class Model_Prediksi:
             
             # Load Model
             self.model = CatBoostClassifier()
-            self.model.load_model(os.path.join(model_dir, "CatBoost_Obesity_Model.cbm"))
+            self.model.load_model(os.path.join(model_dir, "catboost_model.cbm"))
             
             # Load Metadata
-            self.encoders[TARGET_NAME] = joblib.load(os.path.join(model_dir, "Y_Processed.pkl"))
+            # Gunakan y_label_encoder.pkl (LabelEncoder proper) sebagai encoder untuk target
+            self.encoders[TARGET_NAME] = joblib.load(os.path.join(model_dir, "y_label_encoder.pkl"))
             self.feature_names = joblib.load(os.path.join(model_dir, "X_ClassNames.pkl"))
             self.class_names = joblib.load(os.path.join(model_dir, "Y_ClassNames.pkl"))
             
@@ -352,24 +349,12 @@ def run_prediction_app():
 
     with col3:
         st.subheader("Gaya Hidup")
-        smoke = st.selectbox(
-            'Apakah anda merokok?',
-            list(SMOKE_MAP.keys()),
-            format_func=lambda x: 'Tidak' if x == 'no' else 'Ya',
-            key='smoke'
-        )
         ch2o = st.selectbox(
             'Jumlah minum air per hari',
             [1, 2, 3],
             index=1,
             format_func=lambda x: {1: '<1L', 2: '1-2L', 3: '>2L'}[x],
             key='ch2o'
-        )
-        scc = st.selectbox(
-            'Memantau kalori?',
-            list(SCC_MAP.keys()),
-            format_func=lambda x: 'Tidak' if x == 'no' else 'Ya',
-            key='scc'
         )
         faf = st.selectbox('Berapa menit anda melakukan aktivitas fisik (jalan, bersepeda, olahraga ringan) dalam seminggu', [0, 1, 2, 3], index=1,
             format_func=lambda x: {0: '< 15 menit', 1: '15 - 30 menit', 2: '30 - 60 menit', 3: '60+ menit>'}[x],
@@ -391,7 +376,7 @@ def run_prediction_app():
                 input_data = InputData(
                     Age=int(age), Gender=str(gender), Height=float(height)/100.0, Weight=float(weight),
                     family_history_with_overweight=str(family), FAVC=str(favc), FCVC=float(fcvc),
-                    NCP=float(ncp), CAEC=str(caec), SMOKE=str(smoke), CH2O=float(ch2o), SCC=str(scc),
+                    NCP=float(ncp), CAEC=str(caec), CH2O=float(ch2o),
                     FAF=float(faf), TUE=float(tue), CALC=str(calc), MTRANS=str(mtrans)
                 )
                 

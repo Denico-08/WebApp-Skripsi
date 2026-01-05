@@ -244,8 +244,6 @@ class User:
                 'FCVC': 'Frekuensi Konsumsi Sayuran',
                 'NCP': 'Jumlah Makanan Utama per Hari',
                 'CALC': 'Konsumsi Alkohol',
-                'SCC': 'Memantau Konsumsi Kalori',
-                'SMOKE': 'Merokok',
                 'CH2O': 'Konsumsi Air per Hari (Liter)',
                 'FAF': 'Frekuensi Aktivitas Fisik per Minggu',
                 'TUE': 'Waktu Menggunakan Gadget per Hari (Jam)',

@@ -106,16 +106,13 @@ class DiceHelper:
         
         # STEP 0: ENCODE KOLOM YANG MASIH STRING (JIKA ADA)
         # Ini handle kasus di mana X_train_smote.pkl belum di-encode
-        from config import (GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP, SCC_MAP, 
-                           SMOKE_MAP, CAEC_MAP, CALC_MAP, MTRANS_MAP)
+        from config import (GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP, CAEC_MAP, CALC_MAP, MTRANS_MAP)
         
         # Cek dan encode manual jika perlu
         encoding_maps = {
             'Gender': GENDER_MAP,
             'family_history_with_overweight': FAMILY_HISTORY_MAP,
             'FAVC': FAVC_MAP,
-            'SCC': SCC_MAP,
-            'SMOKE': SMOKE_MAP,
             'CAEC': CAEC_MAP,
             'CALC': CALC_MAP,
             'MTRANS': MTRANS_MAP
@@ -147,8 +144,6 @@ class DiceHelper:
             'Gender': [0, 1],
             'family_history_with_overweight': [0, 1],
             'FAVC': [0, 1],
-            'SCC': [0, 1],
-            'SMOKE': [0, 1],
             'CAEC': [0, 1, 2, 3],
             'CALC': [0, 1, 2, 3],
             'MTRANS': [0, 1, 2, 3, 4],
@@ -220,7 +215,7 @@ class DiceHelper:
             needs_encoding = False
             if sample_check is not None:
                 # Cek apakah ada nilai string di kolom yang seharusnya numeric
-                for col in ['Gender', 'FAVC', 'SMOKE']:
+                for col in ['Gender', 'FAVC']:
                     if col in sample_check.columns:
                         sample_vals = sample_check[col].head(3).tolist()
                         if any(isinstance(v, str) for v in sample_vals):
@@ -258,7 +253,7 @@ class DiceHelper:
                     val = int(query_instance[col].iloc[0])
                     
                     # Validasi range untuk setiap fitur
-                    if col in ['Gender', 'family_history_with_overweight', 'FAVC', 'SCC', 'SMOKE']:
+                    if col in ['Gender', 'family_history_with_overweight', 'FAVC']:
                         query_instance[col] = min(max(val, 0), 1)  # Binary: 0 atau 1
                     elif col in ['CAEC', 'CALC']:
                         query_instance[col] = min(max(val, 0), 3)  # 0-3
@@ -601,8 +596,6 @@ class DiceHelper:
                 'CAEC': {'no': 'Tidak Pernah', 'Sometimes': '1-2x/minggu', 'Frequently': '3-5x/minggu', 'Always': '6-7x/minggu'},
                 'CALC': {'no': 'Tidak Pernah', 'Sometimes': '2 Porsi', 'Frequently': '3 Porsi', 'Always': '>4 Porsi'},
                 'FAVC': {'no': 'Tidak', 'yes': 'Ya'},
-                'SCC': {'no': 'Tidak', 'yes': 'Ya'},
-                'SMOKE': {'no': 'Tidak', 'yes': 'Ya'},
                 'MTRANS': {
                     'Walking': 'Jalan Kaki',
                     'Public_Transportation': 'Transport Umum',

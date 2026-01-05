@@ -38,8 +38,6 @@ def insert_input_to_supabase(user_input_raw: dict, user_id: Optional[Any] = None
             'FamilyHistory': True if str(user_input_raw.get('family_history_with_overweight', '')).lower() in ['yes', 'y', 'true', '1', 'ya', 'ya'] else False,
             'FAVC': str(user_input_raw.get('FAVC', '')),
             'CAEC': str(user_input_raw.get('CAEC', '')),
-            'SMOKE': str(user_input_raw.get('SMOKE', '')),
-            'SCC': str(user_input_raw.get('SCC', '')),
             'CALC': str(user_input_raw.get('CALC', '')),
             'MTRANS': str(user_input_raw.get('MTRANS', '')),
             'CH20': int(user_input_raw.get('CH2O', 0)),

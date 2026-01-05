@@ -1,5 +1,5 @@
 from config import (
-    ALL_CATEGORICAL_COLS, GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP, SCC_MAP, SMOKE_MAP,
+    ALL_CATEGORICAL_COLS, GENDER_MAP, FAMILY_HISTORY_MAP, FAVC_MAP,
     CAEC_MAP, CALC_MAP, MTRANS_MAP, CONTINUOUS_COLS, OBESITY_GAIN_HIERARCHY, 
     OBESITY_REDUCTION_HIERARCHY
 )
@@ -34,10 +34,6 @@ class LimeHelper:
             df_encoded['family_history_with_overweight'] = df_encoded['family_history_with_overweight'].map(FAMILY_HISTORY_MAP)
         if 'FAVC' in df_encoded.columns:
             df_encoded['FAVC'] = df_encoded['FAVC'].map(FAVC_MAP)
-        if 'SCC' in df_encoded.columns:
-            df_encoded['SCC'] = df_encoded['SCC'].map(SCC_MAP)
-        if 'SMOKE' in df_encoded.columns:
-            df_encoded['SMOKE'] = df_encoded['SMOKE'].map(SMOKE_MAP)
         if 'CAEC' in df_encoded.columns:
             df_encoded['CAEC'] = df_encoded['CAEC'].map(CAEC_MAP)
         if 'CALC' in df_encoded.columns:
@@ -128,9 +124,7 @@ class LimeHelper:
             'FAVC': 'Anda mengonsumsi makanan tinggi kalori',
             'NCP': 'Jadwal makan utama',
             'CAEC': 'Kebiasaan ngemil',
-            'SMOKE': 'Status merokok',
             'CH2O': 'Konsumsi air putih',
-            'SCC': 'Pemantauan kalori',
             'FAF': 'Aktivitas fisik',
             'TUE': 'Penggunaan gawai',
             'CALC': 'Konsumsi alkohol',
@@ -186,15 +180,11 @@ class LimeHelper:
                         decoded_val = DECODERS[feature_name].get(str(raw_value), str(raw_value))
                         sentence = f"{label} tergolong **{decoded_val}**"
                     
-                    elif feature_name in ['FAVC', 'SMOKE', 'SCC']:
+                    elif feature_name in ['FAVC']:
                         label = FEATURE_TRANSLATIONS.get(feature_name, feature_name)
                         is_yes = str(raw_value).lower() == 'yes'
                         
-                        if feature_name == 'SMOKE':
-                            sentence = "Anda **Merokok**" if is_yes else "Anda **Tidak Merokok**"
-                        elif feature_name == 'SCC':
-                            sentence = "Anda **Memantau kalori**" if is_yes else "Anda **Tidak memantau kalori**"
-                        elif feature_name == 'FAVC':
+                        if feature_name == 'FAVC':
                             sentence = "Sering konsumsi makanan tinggi kalori" if is_yes else "Jarang konsumsi makanan tinggi kalori"
                     
                     else:
@@ -253,9 +243,7 @@ def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
         'FAVC': 'Konsumsi makanan tinggi kalori',
         'NCP': 'Jadwal makan utama',
         'CAEC': 'Kebiasaan ngemil',
-        'SMOKE': 'Status merokok',
         'CH2O': 'Konsumsi air putih',
-        'SCC': 'Pemantauan kalori',
         'FAF': 'Aktivitas fisik',
         'TUE': 'Penggunaan gawai',
         'CALC': 'Konsumsi alkohol',
@@ -316,7 +304,7 @@ def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
                 decoded_val = DECODERS[feature_name].get(str(raw_key), str(raw_key))
                 label = f"{FEATURE_TRANSLATIONS[feature_name]}: {decoded_val}"
             
-            elif feature_name in ['family_history_with_overweight', 'FAVC', 'SMOKE', 'SCC']:
+            elif feature_name in ['family_history_with_overweight', 'FAVC']:
                 val_str = 'Ya' if str(raw_value).lower() == 'yes' else 'Tidak'
                 base_label = FEATURE_TRANSLATIONS[feature_name]
                 if base_label.startswith('Anda'): # "Anda mengonsumsi..." -> "Konsumsi..."
