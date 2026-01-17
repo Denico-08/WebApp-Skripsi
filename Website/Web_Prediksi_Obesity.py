@@ -106,7 +106,7 @@ class InputData:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
                 
                 # Handle missing/inf values
-                if df[col].isnull().any() or np.isinf(df[col]).any():
+                if df[col].isnull().any() or np.isinf(df[col]).any(): #type: ignore
                     defaults = {'Age': 25, 'Height': 170, 'Weight': 70}
                     df[col] = df[col].fillna(defaults.get(col, 0))
                 
@@ -447,13 +447,13 @@ def run_prediction_app():
                     df_processed = hasil.data_input.preprocess(model.feature_names)
                     pred_idx = list(model.encoders[TARGET_NAME].classes_).index(hasil.kategori_berat)
                     
-                    # 1. Generate LIME instance
-                    # Kita gunakan 'predict_proba_catboost_for_lime' dari import
+                    # 1. Generate Explanation
                     lime_exp = lime_explainer.explain_instance(
                         df_processed.values[0],
                         lambda x: predict_proba_catboost_for_lime(x, model.model, model.feature_names),
-                        num_features=7,
-                        top_labels=1
+                        num_features=5,
+                        top_labels=1,
+                        num_samples=50000
                     )
                     
                     # 2. Generate Text

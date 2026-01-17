@@ -24,10 +24,6 @@ class LimeHelper:
         # Buat salinan untuk dimodifikasi
         df_encoded = _X_train_encoded.copy()
 
-        # ==============================================================================
-        # HOTFIX: Encode manual karena data training mentah tidak di-encode
-        # ==============================================================================
-        # Pastikan kolom ada sebelum mapping
         if 'Gender' in df_encoded.columns:
             df_encoded['Gender'] = df_encoded['Gender'].map(GENDER_MAP)
         if 'family_history_with_overweight' in df_encoded.columns:
@@ -323,11 +319,6 @@ def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
     return formatted_features
 
 def generate_lime_barchart(lime_exp, predicted_class_index, user_input_raw):
-    """
-    Generates two separate bar charts for positive and negative LIME weights
-    and returns them as a single base64 encoded string, styled to match the example image.
-    """
-    
     # Dapatkan fitur dan bobot yang sudah diformat
     formatted_features = generate_lime_weights(lime_exp, predicted_class_index, user_input_raw)
     
