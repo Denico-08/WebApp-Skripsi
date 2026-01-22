@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import joblib
 
 import os
 from Role import Role
@@ -15,8 +16,6 @@ import plotly.figure_factory as ff
 # Import Class User (Parent Class)
 from User import User
 
-# Import Class Pendukung dari file utama
-# Pastikan Web_Prediksi_Obesity.py ada di folder yang sama
 from Web_Prediksi_Obesity import Dataset, Model_Prediksi 
 from Connection.supabase_client import get_supabase_client
 from config import TARGET_NAME
@@ -80,7 +79,87 @@ class Admin(User):
                 xaxis_tickangle=-45
             )
             st.plotly_chart(fig, use_container_width=True)
-
+            
+        # Tampilkan distribusi Train, Validation, dan Test
+        st.subheader("Distribusi Data Train, Validation, dan Test")
+        try:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            data_path = os.path.join(base_path, 'Model_Website', 'X dan Y')
+            
+            # Load data
+            y_train_smote_path = os.path.join(base_path, 'Model_Website', 'Y_train_smote.pkl')
+            y_val_path = os.path.join(data_path, 'y_val.csv')
+            y_test_path = os.path.join(data_path, 'y_test.csv')
+            
+            datasets_available = {}
+            datasets_counts = {}
+            
+            # Load Train SMOTE
+            if os.path.exists(y_train_smote_path):
+                try:
+                    y_train_smote = joblib.load(y_train_smote_path)
+                    # Decode jika perlu
+                    if hasattr(y_train_smote, 'dtype') and y_train_smote.dtype == 'int64':
+                        # Asumsikan y_class_names sudah ada dari loading sebelumnya
+                        if 'y_class_names' in locals():
+                            y_train_decoded = [y_class_names[int(y)] for y in y_train_smote] #type: ignore
+                            train_counts = pd.Series(y_train_decoded).value_counts()
+                        else:
+                            train_counts = pd.Series(y_train_smote).value_counts()
+                    else:
+                        train_counts = pd.Series(y_train_smote).value_counts()
+                    datasets_available['Train (SMOTE)'] = train_counts
+                except Exception as e:
+                    st.warning(f"Tidak dapat memuat y_train_smote: {e}")
+            
+            # Load Validation
+            if os.path.exists(y_val_path):
+                try:
+                    y_val_df = pd.read_csv(y_val_path)
+                    y_val_col = y_val_df.columns[0]
+                    val_counts = y_val_df[y_val_col].value_counts()
+                    datasets_available['Validation'] = val_counts
+                except Exception as e:
+                    st.warning(f"Tidak dapat memuat y_val: {e}")
+            
+            # Load Test
+            if os.path.exists(y_test_path):
+                try:
+                    y_test_df = pd.read_csv(y_test_path)
+                    y_test_col = y_test_df.columns[0]
+                    test_counts = y_test_df[y_test_col].value_counts()
+                    datasets_available['Test'] = test_counts
+                except Exception as e:
+                    st.warning(f"Tidak dapat memuat y_test: {e}")
+            
+            if datasets_available:
+                # Buat kolom untuk setiap dataset
+                num_cols = len(datasets_available)
+                cols = st.columns(num_cols)
+                
+                for idx, (dataset_name, counts) in enumerate(datasets_available.items()):
+                    with cols[idx]:
+                        st.write(f"**{dataset_name}**")
+                        fig_dist = px.bar(
+                            counts,
+                            x=counts.index,
+                            y=counts.values,
+                            labels={'x': 'Kelas', 'y': 'Jumlah'},
+                            color=counts.index,
+                            text_auto=True
+                        )
+                        fig_dist.update_layout(
+                            showlegend=False,
+                            xaxis_title="Kelas",
+                            yaxis_title="Jumlah",
+                            xaxis_tickangle=-45,
+                            height=400
+                        )
+                        st.plotly_chart(fig_dist, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("Data Train, Validation, dan Test tidak tersedia.")
+        except Exception as e:
+            st.warning(f"Tidak dapat memuat distribusi data: {e}")
 
         st.subheader("Preview Data")
         st.dataframe(df.head(100), use_container_width=True)
