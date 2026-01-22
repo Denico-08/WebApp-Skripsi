@@ -591,7 +591,7 @@ class DiceHelper:
                 'FCVC': {1: 'Tidak Pernah', 2: 'Setengah dari jumlah makan per hari', 3: 'Setiap Makan'},
                 'NCP': {1: '1x/hari', 2: '2x/hari', 3: '3x/hari', 4: '4x/hari'},
                 'CH2O': {1: '<1 Liter', 2: '1-2 Liter', 3: '>2 Liter'},
-                'FAF': {0: '< 15 menit', 1: '15 - 30 menit', 2: '30 - 60 menit', 3: '+ 60 menit'},
+                'FAF': {0: '< 15 menit', 1: '15 - 30 menit', 2: '30 - 60 menit', 3: '> 60 menit'},
                 'TUE': {0: '< 1 jam', 1: '1-2 jam', 2: '>2 jam'},
                 'CAEC': {'no': 'Tidak Pernah', 'Sometimes': '1-2x/minggu', 'Frequently': '3-5x/minggu', 'Always': '6-7x/minggu'},
                 'CALC': {'no': 'Tidak Pernah', 'Sometimes': '2 Porsi', 'Frequently': '3 Porsi', 'Always': '>4 Porsi'},

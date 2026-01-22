@@ -230,26 +230,72 @@ class User:
 
         if not df.empty:
             # Urutkan berdasarkan tanggal, dari yang terbaru
-            if 'CreateInput' in df.columns and pd.api.types.is_datetime64_any_dtype(df['CreateInput']):
-                df = df.sort_values(by='CreateInput', ascending=False)
+            try:
+                if 'CreateInput' in df.columns:
+                    # Konversi ke datetime jika belum
+                    if not pd.api.types.is_datetime64_any_dtype(df['CreateInput']):
+                        df['CreateInput'] = pd.to_datetime(df['CreateInput'], errors='coerce')
+                    df = df.sort_values(by='CreateInput', ascending=False, na_position='last')
+            except Exception as e:
+                pass
 
-            # Kamus untuk nama kolom yang lebih deskriptif
             column_mapping = {
                 'Gender': 'Jenis Kelamin',
                 'Age': 'Usia',
                 'Height': 'Tinggi (cm)',
                 'Weight': 'Berat (kg)',
-                'family_history_with_overweight': 'Riwayat Keluarga Obesitas',
+                'FamilyHistory': 'Riwayat Keluarga Obesitas',
                 'FAVC': 'Sering Konsumsi Makanan Tinggi Kalori',
                 'FCVC': 'Frekuensi Konsumsi Sayuran',
                 'NCP': 'Jumlah Makanan Utama per Hari',
                 'CALC': 'Konsumsi Alkohol',
-                'CH2O': 'Konsumsi Air per Hari (Liter)',
+                'CH20': 'Konsumsi Air per Hari (Liter)',
                 'FAF': 'Frekuensi Aktivitas Fisik per Minggu',
                 'TUE': 'Waktu Menggunakan Gadget per Hari (Jam)',
                 'MTRANS': 'Transportasi yang Digunakan',
                 'CreateInput': 'Tanggal Prediksi'
             }
+            
+            # Mapping untuk decode nilai ordinal
+            ordinal_decoders = {
+                'FCVC': {1: 'Tidak Pernah', 2: 'Setengah dari jumlah makan per hari', 3: 'Setiap Makan', '1': 'Tidak Pernah', '2': 'Setengah dari jumlah makan per hari', '3': 'Setiap Makan'},
+                'NCP': {1: '1x/hari', 2: '2x/hari', 3: '3x/hari', 4: '4x/hari', '1': '1x/hari', '2': '2x/hari', '3': '3x/hari', '4': '4x/hari'},
+                'CH20': {1: '<1 Liter', 2: '1-2 Liter', 3: '>2 Liter', '1': '<1 Liter', '2': '1-2 Liter', '3': '>2 Liter'},
+                'FAF': {0: '< 15 menit', 1: '15 - 30 menit', 2: '30 - 60 menit', 3: '> 60 menit', '0': '< 15 menit', '1': '15 - 30 menit', '2': '> 60 Menit'},
+                'TUE': {0: '< 1 jam', 1: '1-2 jam', 2: '>2 jam', '0' : '< 1 jam', '1': '1-2 jam', '2': '>2 jam'},
+                'CAEC': {'no': 'Tidak Pernah', 'Sometimes': '1-2x/minggu', 'Frequently': '3-5x/minggu', 'Always': '6-7x/minggu'},
+                'CALC': {'no': 'Tidak Pernah', 'Sometimes': '2 Porsi', 'Frequently': '3 Porsi', 'Always': '>4 Porsi'},
+                'FAVC': {'no': 'Tidak', 'yes': 'Ya', 0: 'Tidak', 1: 'Ya', '0': 'Tidak', '1': 'Ya'},
+                'FamilyHistory': {True: 'Ya', False: 'Tidak', 'true': 'Ya', 'false': 'Tidak', 'True': 'Ya', 'False': 'Tidak', 1: 'Ya', 0: 'Tidak', '1': 'Ya', '0': 'Tidak'},
+                'MTRANS': {
+                    'Walking': 'Jalan Kaki',
+                    'Public_Transportation': 'Transport Umum',
+                    'Bike': 'Sepeda',
+                    'Motorbike': 'Motor',
+                    'Automobile': 'Mobil'
+                }
+            }
+            
+            # Helper function untuk decode nilai
+            def decode_value(col_name, value):
+                """Dekode nilai ordinal menjadi teks yang deskriptif"""
+                if col_name in ordinal_decoders:
+                    try:
+                        # Try berbagai format: original value, string, dan integer
+                        decoded = ordinal_decoders[col_name].get(value, None)
+                        if decoded is None and isinstance(value, (int, float)):
+                            decoded = ordinal_decoders[col_name].get(str(int(value)), None)
+                            if decoded is None:
+                                decoded = ordinal_decoders[col_name].get(int(value), None)
+                        if decoded is None and isinstance(value, str):
+                            try:
+                                decoded = ordinal_decoders[col_name].get(int(value), None)
+                            except:
+                                pass
+                        return decoded if decoded else str(value)
+                    except:
+                        return str(value)
+                return str(value) if pd.notna(value) else 'N/A'
 
             for index, row in df.iterrows():
                 try:
@@ -277,13 +323,17 @@ class User:
                             for col_name in input_data_cols[:mid_point]:
                                 label = column_mapping.get(col_name, col_name)
                                 value = row[col_name]
-                                st.text(f"{label}: {value}")
+                                # Decode nilai jika ordinal
+                                display_value = decode_value(col_name, value)
+                                st.text(f"{label}: {display_value}")
                                 
                         with col2:
                             for col_name in input_data_cols[mid_point:]:
                                 label = column_mapping.get(col_name, col_name)
                                 value = row[col_name]
-                                st.text(f"{label}: {value}")
+                                # Decode nilai jika ordinal
+                                display_value = decode_value(col_name, value)
+                                st.text(f"{label}: {display_value}")
 
                 except Exception as e:
                     st.warning(f"Gagal menampilkan salah satu riwayat. Data mentah di bawah.")
