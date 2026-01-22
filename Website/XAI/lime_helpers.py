@@ -69,9 +69,6 @@ class LimeHelper:
         return self.explainer
 
     def predict_proba(self, data, model_obj, all_features_list):
-        """
-        Fungsi prediksi khusus untuk LIME yang menangani preprocessing data input.
-        """
         try:
             # Normalize input to DataFrame with expected columns
             if isinstance(data, np.ndarray):
@@ -106,11 +103,7 @@ class LimeHelper:
             raise
 
     def generate_explanation_text(self, lime_exp, predicted_class_index, predicted_class_name, user_input_raw):
-        """
-        Menerjemahkan hasil LIME menjadi kalimat natural bahasa Indonesia
-        berdasarkan nilai input asli user.
-        """
-        
+
         FEATURE_TRANSLATIONS = {
             'Age': 'Umur Anda',
             'Gender': 'Jenis kelamin Anda',
@@ -130,12 +123,12 @@ class LimeHelper:
 
         DECODERS = {
             'CH2O': {'1': 'Kurang (<1L)', '2': 'Cukup (1-2L)', '3': 'Banyak (>2L)'},
-            'FCVC': {'1': 'Jarang', '2': 'Kadang-kadang', '3': 'Sering/Selalu'},
+            'FCVC': {'1': 'Tidak Pernah', '2': 'Tidak Selalu', '3': 'Setiap Makan'},
             'NCP': {'1': '1x sehari', '2': '2x sehari', '3': '3x sehari', '4': 'Lebih dari 3x'},
-            'FAF': {'0': 'Tidak ada', '1': 'Ringan (1-2 hari)', '2': 'Sedang (3-4 hari)', '3': 'Rutin/Tinggi'},
-            'TUE': {'0': 'Rendah (0-2 jam)', '1': 'Sedang (3-5 jam)', '2': 'Tinggi (>5 jam)'},
-            'CAEC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'},
-            'CALC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'}
+            'FAF': {'0': '< 15 Menit', '1': '15-30 Menit', '2': '30-69 Menit', '3': '> 60 Menit'},
+            'TUE': {'0': '< 1 Jam', '1': '1-2 Jam', '2': '> 2 Jam'},
+            'CAEC': {'no': 'Tidak Pernah', 'Sometimes': '1-2x/Minggu', 'Frequently': '3-5x/Minggu', 'Always': '6-7x/Minggu'},
+            'CALC': {'no': 'Tidak Pernah', 'Sometimes': '2 Porsi', 'Frequently': '3 Porsi', 'Always': '> 4 Porsi'}
         }
 
         def format_sentences_from_features(features, known_keys):
@@ -173,7 +166,13 @@ class LimeHelper:
                     
                     elif feature_name in DECODERS:
                         label = FEATURE_TRANSLATIONS.get(feature_name, feature_name)
-                        decoded_val = DECODERS[feature_name].get(str(raw_value), str(raw_value))
+                        raw_key = raw_value
+                        if isinstance(raw_key, float):
+                            raw_key = int(raw_key)
+                        # Try both string and original type keys
+                        decoded_val = DECODERS[feature_name].get(str(raw_key), None)
+                        if decoded_val is None:
+                            decoded_val = DECODERS[feature_name].get(raw_key, str(raw_key)) #type: ignore
                         sentence = f"{label} tergolong **{decoded_val}**"
                     
                     elif feature_name in ['FAVC']:
@@ -257,6 +256,13 @@ def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
         'CALC': {'no': 'Tidak Pernah', 'Sometimes': 'Kadang-kadang', 'Frequently': 'Sering', 'Always': 'Selalu'}
     }
     
+    # Convert integer keys to string for consistency with raw_value processing
+    DECODERS['CH2O'] = {str(k): v for k, v in DECODERS['CH2O'].items()}
+    DECODERS['FCVC'] = {str(k): v for k, v in DECODERS['FCVC'].items()}
+    DECODERS['NCP'] = {str(k): v for k, v in DECODERS['NCP'].items()}
+    DECODERS['FAF'] = {str(k): v for k, v in DECODERS['FAF'].items()}
+    DECODERS['TUE'] = {str(k): v for k, v in DECODERS['TUE'].items()}
+    
     try:
         explanation_list = lime_exp.as_list(label=predicted_class_index)
     except IndexError:
@@ -295,9 +301,14 @@ def generate_lime_weights(lime_exp, predicted_class_index, user_input_raw):
 
             elif feature_name in DECODERS:
                 raw_key = raw_value
-                if isinstance(raw_key, float): raw_key = int(raw_key)
+                if isinstance(raw_key, float): 
+                    raw_key = int(raw_key)
                 
-                decoded_val = DECODERS[feature_name].get(str(raw_key), str(raw_key))
+                # Try both int and string keys for better compatibility
+                decoded_val = DECODERS[feature_name].get(str(raw_key), None)
+                if decoded_val is None:
+                    decoded_val = DECODERS[feature_name].get(raw_key, str(raw_key))
+                
                 label = f"{FEATURE_TRANSLATIONS[feature_name]}: {decoded_val}"
             
             elif feature_name in ['family_history_with_overweight', 'FAVC']:

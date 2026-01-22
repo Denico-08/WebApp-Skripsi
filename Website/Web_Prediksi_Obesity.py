@@ -357,12 +357,17 @@ def run_prediction_app():
             key='ch2o'
         )
         faf = st.selectbox('Berapa menit anda melakukan aktivitas fisik (jalan, bersepeda, olahraga ringan) dalam seminggu', [0, 1, 2, 3], index=1,
-            format_func=lambda x: {0: '< 15 menit', 1: '15 - 30 menit', 2: '30 - 60 menit', 3: '60+ menit>'}[x],
+            format_func=lambda x: {0: '< 15 menit', 1: '15 - 30 menit', 2: '30 - 60 menit', 3: '> 60 menit'}[x],
             key='faf')
         tue = st.selectbox('Penggunaan gawai (jam/hari)', [0, 1, 2], index=1, 
             format_func=lambda x: {0: '< 1 jam', 1: '1 - 2 jam', 2: '>2 jam'}[x],
             key='tue')
-        mtrans = st.selectbox('Transportasi utama', list(MTRANS_MAP.keys()), index=1, key='mtrans')
+        mtrans = st.selectbox(
+            'Transportasi utama', 
+            list(MTRANS_MAP.keys()), 
+            format_func = lambda x: {'Walking': 'Jalan Kaki', 'Public_Transportation': 'Transportasi Umum', 'Bike': 'Sepeda', 'Motorbike': 'Motor', 'Automobile': 'Mobil'}[x],
+            index=1, 
+            key='mtrans')
 
     # Prediksi
     st.markdown("---")
