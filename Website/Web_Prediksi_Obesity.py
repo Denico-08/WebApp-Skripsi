@@ -7,7 +7,7 @@ from dataclasses import dataclass, asdict
 from catboost import CatBoostClassifier
 
 from User import User
-from Connection.supabase_client import (
+from Connection.db_client import (
     insert_input_to_supabase,
     insert_faktor_dominan,
     insert_prediction_to_supabase,

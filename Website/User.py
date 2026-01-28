@@ -1,6 +1,9 @@
 import streamlit as st
+import bcrypt
 import pandas as pd
-from Connection.supabase_client import get_supabase_client
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from Connection.db_client import get_db_connection
 from Role import Role
 
 class User:
@@ -16,32 +19,27 @@ class User:
     # ==========================================================================
 
     def login_action(self) -> bool:
-        """Logika autentikasi ke Supabase."""
-        if not self.email or not self.password:
-            return False
-        
+        conn = get_db_connection()
         try:
-            supabase = get_supabase_client()
-            response = supabase.table("User").select("*").eq("Email", self.email).eq("Password", self.password).execute()
-            
-            if response.data and len(response.data) > 0:
-                user_data = response.data[0]
-                self.id = user_data.get("ID_User") #type: ignore
-                self.name = user_data.get("Nama") #type: ignore
-                
-                # Mengambil role dari database
-                db_role = user_data.get("Role") #type: ignore
-                
-                # --- UPDATE 3: Pastikan role valid (Opsional tapi bagus) ---
-                # Jika di DB tertulis "Admin", kita simpan sebagai string "Admin"
-                self.role = db_role if db_role else Role.USER.value
-                
-                st.session_state.user_authenticated = True
-                st.session_state.user = self.email
-                st.session_state.user_id = self.id
-                st.session_state.user_role = self.role
-                st.session_state.user_name = self.name
-                return True
+            cur = conn.cursor(cursor_factory=RealDictCursor) # type: ignore
+            cur.execute('SELECT * FROM "User" WHERE "Email" = %s', (self.email,))
+            user_data = cur.fetchone()
+
+            if user_data:
+                # Verifikasi password hash
+                stored_password = user_data['Password']
+                if bcrypt.checkpw(self.password.encode('utf-8'), stored_password.encode('utf-8')): # type: ignore
+                    self.id = user_data["ID_User"]
+                    self.name = user_data["Nama"]
+                    self.role = user_data["Role"] if user_data["Role"] else Role.USER.value
+
+                    # Set session state (sama seperti kode lama)
+                    st.session_state.user_authenticated = True
+                    st.session_state.user = self.email
+                    st.session_state.user_id = self.id
+                    st.session_state.user_role = self.role
+                    st.session_state.user_name = self.name
+                    return True
             return False
         except Exception as e:
             return False
@@ -49,107 +47,64 @@ class User:
     def register_action(self, confirm_password: str) -> bool:
         """Logika pendaftaran pengguna baru."""
         if not all([self.email, self.name, self.password, confirm_password]):
+            st.error("Semua kolom harus diisi.")
             return False
 
         if self.password != confirm_password:
+            st.error("Password dan Konfirmasi Password tidak cocok.")
             return False
         
-        if len(self.password) < 6: #type: ignore
+        if len(self.password) < 6: # type: ignore
+            st.error("Password minimal 6 karakter.")
             return False
 
-        try:
-            supabase = get_supabase_client()
-            auth_response = supabase.auth.sign_up({"email": self.email, "password": self.password}) #type: ignore
+        # Hash password
+        import bcrypt
+        hashed = bcrypt.hashpw(self.password.encode('utf-8'), bcrypt.gensalt()) # type: ignore
+        
+        conn = get_db_connection()
+        
+        # --- PERBAIKAN: Cek koneksi sebelum lanjut ---
+        if conn is None:
+            st.error("Gagal terhubung ke database. Periksa koneksi internet atau konfigurasi server.")
+            return False
+        # ---------------------------------------------
 
-            if auth_response.user:
-                user_id = auth_response.user.id
-                insert_data = {
-                    "ID_User": user_id, "Email": self.email, 
-                    "Password": self.password, "Nama": self.name, "Role": Role.USER.value
-                }
-                supabase.table("User").insert(insert_data).execute()
-                return True
-            else:
-                return False
+        try:
+            cur = conn.cursor()
+            
+            # Generate ID manual (UUID)
+            import uuid
+            new_id = str(uuid.uuid4())
+            
+            # Query Insert
+            sql = """INSERT INTO "User" ("ID_User", "Email", "Password", "Nama", "Role") 
+                     VALUES (%s, %s, %s, %s, %s)"""
+            
+            # Jalankan query
+            cur.execute(sql, (new_id, self.email, hashed.decode('utf-8'), self.name, Role.USER.value))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            return True
+
         except Exception as e:
+            # Jika conn terbuka tapi query gagal, tutup koneksi
+            if conn: conn.close()
             st.error(f"Error register: {e}")
             return False
 
     def get_history_data(self) -> pd.DataFrame:
-
-        if not self.id:
-            return pd.DataFrame()
-
-        client = get_supabase_client()
-        try:
-            # 1. Ambil Data Input milik User
-            input_resp = client.table("DataInput").select("*").eq("ID_User", self.id).execute()
-            input_data = input_resp.data
-            
-            if not input_data:
-                return pd.DataFrame()
-
-            # 2. Ambil ID Input untuk query Prediksi
-            input_ids = [item.get('ID_Input') for item in input_data if item.get('ID_Input') is not None] #type: ignore
-            
-            pred_data = []
-            if input_ids:
-                pred_resp = client.table("Prediksi").select("*").in_("ID_DataInput", input_ids).execute()
-                pred_data = pred_resp.data if hasattr(pred_resp, 'data') else []
-            
-            df_inputs = pd.DataFrame(input_data)
-            df_preds = pd.DataFrame(pred_data)
-
-            # Pastikan tipe data ID konsisten (string) agar merge berhasil
-            if 'ID_Input' in df_inputs.columns:
-                df_inputs['ID_Input'] = df_inputs['ID_Input'].astype(str)
-            if 'ID_DataInput' in df_preds.columns:
-                df_preds['ID_DataInput'] = df_preds['ID_DataInput'].astype(str)
-
-            # 3. Merge Data
-            if not df_preds.empty:
-                right = df_preds.copy()
-                # Hindari duplikasi ID_User
-                if 'ID_User' in right.columns:
-                    right = right.drop(columns=['ID_User'])
-
-                # Normalisasi nama kolom hasil prediksi
-                cols_lower = {c.lower(): c for c in right.columns}
-                if 'hasil_prediksi' not in cols_lower:
-                    candidate = None
-                    for k in cols_lower:
-                        if 'hasil' in k or 'predik' in k or 'prediction' in k:
-                            candidate = cols_lower[k]
-                            break
-                    if candidate:
-                        right = right.rename(columns={candidate: 'Hasil_Prediksi'})
-                    else:
-                        right['Hasil_Prediksi'] = None
-
-                df_history = pd.merge(df_inputs, right, left_on='ID_Input', right_on='ID_DataInput', how='left')
-
-                # Fallback check column names after merge
-                if 'Hasil_Prediksi' not in df_history.columns:
-                    candidates = [c for c in df_history.columns if 'hasil' in c.lower() or 'predik' in c.lower() or 'prediction' in c.lower()]
-                    if candidates:
-                        df_history['Hasil_Prediksi'] = df_history[candidates[0]]
-                    else:
-                        df_history['Hasil_Prediksi'] = None
-            else:
-                df_history = df_inputs.copy()
-                df_history['Hasil_Prediksi'] = "N/A"
-
-            # Normalize missing hasil values
-            try:
-                df_history['Hasil_Prediksi'] = df_history['Hasil_Prediksi'].fillna('N/A')
-            except Exception:
-                pass
-
-            return df_history
-
-        except Exception as e:
-            st.error(f"Gagal mengambil history: {e}")
-            return pd.DataFrame()
+        conn = get_db_connection()
+        query = f"""
+        SELECT i.*, p."Hasil_Prediksi", p."Probabilitas"
+        FROM "DataInput" i
+        LEFT JOIN "Prediksi" p ON i."ID_Input" = p."ID_DataInput"
+        WHERE i."ID_User" = '{self.id}'
+        ORDER BY i."CreateInput" DESC
+        """
+        return pd.read_sql(query, conn)
 
     # ==========================================================================
     # UTILITIES (LOGOUT & AUTH CHECK)
@@ -157,11 +112,12 @@ class User:
 
     @staticmethod
     def logout():
-        try:
-            get_supabase_client().auth.sign_out()
-        except Exception: pass
-        for key in ['user_authenticated', 'user', 'user_id', 'user_role', 'user_name']:
-            if key in st.session_state: del st.session_state[key]
+        # Daftar key yang perlu dihapus dari session state
+        keys_to_clear = ['user_authenticated', 'user', 'user_id', 'user_role', 'user_name']
+        
+        for key in keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()
 
     @staticmethod

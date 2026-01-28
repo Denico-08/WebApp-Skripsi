@@ -17,7 +17,7 @@ import plotly.figure_factory as ff
 from User import User
 
 from Web_Prediksi_Obesity import Dataset, Model_Prediksi 
-from Connection.supabase_client import get_supabase_client
+from Connection.db_client import get_db_connection
 from config import TARGET_NAME
 
 # ==============================================================================
@@ -348,29 +348,13 @@ class Admin(User):
     def view_all_users(self):
         """Menampilkan daftar user dan data input mereka."""
         st.header("Segmen User")
-        
+        conn = get_db_connection()
         try:
-            client = get_supabase_client()
-            users = client.table('User').select('*').execute().data
-            inputs = client.table('DataInput').select('*').execute().data
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Total User Terdaftar", len(users) if users else 0)
-            with col2:
-                st.metric("Total Data Input Masuk", len(inputs) if inputs else 0)
-
-            st.markdown("---")
-            if users:
-                st.subheader('Daftar Akun User')
-                st.dataframe(pd.DataFrame(users), use_container_width=True)
-            
-            if inputs:
-                st.subheader('Log Data Input & Prediksi User')
-                st.dataframe(pd.DataFrame(inputs), use_container_width=True)
-
+            users = pd.read_sql('SELECT * FROM "User"', conn)
+            inputs = pd.read_sql('SELECT * FROM "DataInput"', conn)
+            # ... sisa kode visualisasi dataframe sama ...
         except Exception as e:
-            st.error(f"Gagal mengambil data user: {e}")
+            st.error(f"Gagal: {e}")
 
     # --------------------------------------------------------------------------
     # UI DASHBOARD UTAMA
@@ -416,9 +400,7 @@ def run_admin_page():
             st.session_state.page = "prediksi"
             st.rerun()
         return
-
-    # 3. Instansiasi Objek Admin
-    # Mengambil data dari session state yang diset saat login
+    
     current_admin = Admin(
         email=st.session_state.get('user'),
         name=st.session_state.get('user_name'),

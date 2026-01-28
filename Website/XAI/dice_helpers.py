@@ -32,7 +32,6 @@ class DiceHelper:
         elif current_class in OBESITY_REDUCTION_HIERARCHY:
             active_hierarchy = [c for c in OBESITY_REDUCTION_HIERARCHY if c in class_names]
         else:
-            # Jika kelas saat ini adalah Normal_Weight atau tidak ada di hirarki
             return current_class, True, [current_class]
 
         # Temukan posisi saat ini di hirarki aktif
@@ -134,7 +133,6 @@ class DiceHelper:
             if col in df_dice.columns:
                 df_dice[col] = pd.to_numeric(df_dice[col], errors='coerce').fillna(0).astype(float)
         
-        
         # Template row untuk membuat dummy data
         template_row = df_dice.iloc[0].copy()
         dummy_rows = []
@@ -215,7 +213,7 @@ class DiceHelper:
             needs_encoding = False
             if sample_check is not None:
                 # Cek apakah ada nilai string di kolom yang seharusnya numeric
-                for col in ['Gender', 'FAVC']:
+                for col in ALL_CATEGORICAL_COLS:
                     if col in sample_check.columns:
                         sample_vals = sample_check[col].head(3).tolist()
                         if any(isinstance(v, str) for v in sample_vals):
@@ -306,7 +304,7 @@ class DiceHelper:
                 {
                     'name': 'Optimal (Tanpa Ubah Berat)',
                     'allow_weight': False,
-                    'total_cfs': 5,
+                    'total_cfs': 50,
                     'method': 'genetic',  # Hanya 1 method
                     'params': {
                         'proximity_weight': 0.5,
@@ -316,7 +314,7 @@ class DiceHelper:
                 {
                     'name': 'Balanced (Dengan Berat)',
                     'allow_weight': True,
-                    'total_cfs': 10,
+                    'total_cfs': 50,
                     'method': 'genetic',
                     'params': {
                         'proximity_weight': 0.3,
@@ -326,7 +324,7 @@ class DiceHelper:
                 {
                     'name': 'Relaxed Genetic',
                     'allow_weight': True,
-                    'total_cfs': 15,
+                    'total_cfs': 50,
                     'method': 'genetic',
                     'params': {
                         'proximity_weight': 0.1,
@@ -336,16 +334,16 @@ class DiceHelper:
                 {
                     'name': 'Random Search',
                     'allow_weight': True,
-                    'total_cfs': 20,
+                    'total_cfs': 50,
                     'method': 'random',
                     'params': {
-                        'num_cfs': 20  # Random method uses num_cfs instead of total_CFs
+                        'num_cfs': 50  # Random method uses num_cfs instead of total_CFs
                     }
                 },
                 {
                     'name': 'KD-Tree (Experimental)',
                     'allow_weight': True,
-                    'total_cfs': 10,
+                    'total_cfs': 50,
                     'method': 'kdtree',
                     'params': {}
                 }
